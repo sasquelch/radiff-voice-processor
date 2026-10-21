@@ -20,7 +20,7 @@ every dbx 286s control to have a counterpart: the mapping table is in docs/DSP_D
 Multiband expander, saturation and limiter are not implemented and have no placeholder parameters.
 **Phase 4 (first version, 2026-10-21):** iPlug2 standalone `RaDiffVoice-app` in `src/standalone`
 (+ toolkit-free `radiff::ui` in `src/ui`), controls generated from the parameter table, preset
-library, file panel, live speech tracking. Build: `cmake --preset mac-debug -DRADIFF_BUILD_STANDALONE=ON`
+library, file panel, preview playback through the live chain (`ui::FilePlayer`), live speech tracking. Build: `cmake --preset mac-debug -DRADIFF_BUILD_STANDALONE=ON`
 (default ON on Apple/Windows for fresh caches), app at `build/<preset>/out/RaDiffVoice.app`;
 `RADIFF_SCREENSHOT=<png>` renders and exits (see docs/STANDALONE.md).
 Next: owner hands-on with the app, then Phase 3 remainder (`--sample-rate`, `--channels`, `--log`,

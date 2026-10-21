@@ -1212,7 +1212,7 @@ void RaDiffVoiceApp::layout(IGraphics* g) {
     const float wExp = rowA.W() - wInput - wEq - 2 * kGap;
     layoutModulePanel(g, slot(rowA, wInput), Module::Input, 2, 78.f);
     layoutEqPanel(g, slot(rowA, wEq));
-    layoutModulePanel(g, slot(rowA, wExp), Module::Expander, 5, 78.f);
+    layoutModulePanel(g, slot(rowA, wExp), Module::Expander, 6, 78.f); // 21 params -> 4 rows + threshold line
 
     // Row B: De-esser | Compressor 1 | Compressor 2
     x = rowB.L;

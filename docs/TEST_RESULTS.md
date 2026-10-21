@@ -4,6 +4,22 @@ Only results that were actually executed are recorded here, with the environment
 Environment for all entries unless stated: Apple M1 Max, macOS 27.0.1, Xcode 27.1
 (Apple clang 21.0.0), CMake 4.4.3, Ninja 1.13.2, repository commit as of the entry date.
 
+## 2026-10-21 — Preview playback in the standalone app
+
+Owner request: load a file and hear it live through the current settings while watching the
+levels. `ui::FilePlayer` + a PREVIEW strip (Load, Play/Pause, Stop, Loop, seek bar, time,
+source indicator); while playing, the file replaces the device input and the engine runs
+exactly as for live audio (meters, bypass A/B, latency, speech tracker).
+
+| What | Result |
+|---|---|
+| `test_ui` (file player) | ✅ same-rate playback bit-exact; 48 → 44.1 kHz 1 kHz and 6 kHz tones within 0.2 dB RMS; position/seek/pause/loop/ended; mono fills both channels |
+| `ctest --preset mac-debug` / `mac-release` | ✅ 34/34 |
+| `RADIFF_AUTO_PLAY` hook, 48 kHz file into the 44.1 kHz device stream (resampler path) | ✅ `playing=1 position=13.00s in=-34.6 dBFS … max-in=-7.6 max-out=-10.9 dBFS gr exp=11.2 dB`; screenshot shows IN/OUT meters lit, EXP bar, "SOURCE: FILE PREVIEW", 0:13.0 / 0:39.7, "Threshold in use … tracked live" |
+
+**Not verified:** clicking the transport by hand; matched-loudness A/B (bypass compares at
+natural level); waveform display; very long files load synchronously on the UI thread.
+
 ## 2026-10-21 — Click ducking (owner: "I'm still hearing clicks of a mouse")
 
 Cause found by measuring the raw take (`bursts.py`, 2 ms and 10 ms one-pole detectors at the
