@@ -1,11 +1,12 @@
 // RaDiffVoiceCLI - headless, display-less, audio-device-less batch processor.
 //
 //   RaDiffVoiceCLI --input <in.wav> --output <out.wav> [--preset <file.radvoice.json>]
-//                  [--set key=value ...] [--format pcm16|pcm24|pcm32|float32]
-//                  [--block <frames>] [--no-overwrite] [--quiet] [--version] [--help]
+//                  [--set module.key=value ...] [--format pcm16|pcm24|pcm32|float32]
+//                  [--bit-depth 16|24|32|float] [--overwrite] [--block <frames>]
+//                  [--json-result] [--verbose] [--quiet] [--list-params] [--version] [--help]
 //
 // Exit codes: see radiff/app/ExitCodes.h (0 success, 2 usage, 3 input, 4 preset,
-// 5 processing, 6 output, 70 internal).
+// 5 processing, 6 output I/O, 7 validation, 8 cancelled, 70 internal).
 
 #include "radiff/app/ExitCodes.h"
 #include "radiff/app/FileProcessor.h"
@@ -15,9 +16,11 @@
 #include "radiff/platform/Strings.h"
 #include "radiff/presets/Preset.h"
 
+#include <nlohmann/json.hpp>
+
+#include <chrono>
 #include <cmath>
 #include <cstdio>
-#include <iostream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -32,52 +35,109 @@ void printUsage(std::FILE* to) {
         "RaDiff Voice Processor CLI " RADIFF_VERSION_STRING "\n"
         "\n"
         "Usage:\n"
-        "  RaDiffVoiceCLI --input <in.wav> --output <out.wav> [--preset <file.radvoice.json>] [options]\n"
+        "  RaDiffVoiceCLI --input <in.wav> --output <out.wav> --preset <file.radvoice.json> [options]\n"
         "\n"
         "Options:\n"
-        "  --input <path>      Input WAV file (16/24/32-bit PCM or 32-bit float, mono or stereo)\n"
-        "  --output <path>     Output WAV file; written atomically, never left partial\n"
-        "  --preset <path>     Preset (.radvoice.json). Omit for factory defaults\n"
-        "  --set key=value     Override a parameter after the preset is loaded (repeatable)\n"
-        "  --format <fmt>      Output encoding: pcm16, pcm24, pcm32, float32 (default: same as input)\n"
-        "  --block <frames>    Processing block size (default 512; does not affect output)\n"
-        "  --no-overwrite      Fail instead of replacing an existing output file\n"
-        "  --list-params       Print all parameter keys with ranges and defaults\n"
-        "  --quiet             Only print errors\n"
-        "  --version           Print version and exit\n"
-        "  --help              Show this help\n"
+        "  --input <path>        Input WAV (16/24/32-bit PCM or 32-bit float, mono/stereo, any rate)\n"
+        "  --output <path>       Output WAV; written to a temp file, verified, then atomically published\n"
+        "  --preset <path>       Preset (.radvoice.json). Omitted = built-in balanced defaults\n"
+        "  --set <path>=<value>  Override a parameter after the preset, e.g. --set expander.thresholdDbfs=-44\n"
+        "                        (repeatable; see --list-params; enums by name, booleans true/false)\n"
+        "  --format <fmt>        Output encoding: pcm16, pcm24, pcm32, float32 (default: same as input)\n"
+        "  --bit-depth <n>       Same as --format: 16, 24, 32 (integer) or float\n"
+        "  --overwrite           Allow replacing an existing output file (never the input)\n"
+        "  --block <frames>      Processing block size, 1..65536 (default 512; does not affect output)\n"
+        "  --json-result         Print a machine-readable JSON result object on stdout\n"
+        "  --verbose             Print latency, meters and timing\n"
+        "  --quiet               Only print errors\n"
+        "  --list-params         Print all parameter paths with ranges and defaults\n"
+        "  --version             Print version and exit\n"
+        "  --help                Show this help\n"
         "\n"
-        "Exit codes: 0 ok, 2 usage, 3 input, 4 preset, 5 processing, 6 output, 70 internal\n",
+        "Exit codes: 0 ok, 2 usage, 3 input, 4 preset, 5 processing, 6 output I/O, 7 validation,\n"
+        "            8 cancelled, 70 internal\n",
         to);
 }
 
 void printParams() {
-    for (const auto& p : radiff::core::paramTable())
-        std::printf("%-20s %-16s min=%-9g max=%-9g default=%g\n", std::string(p.key).c_str(),
-                    std::string(p.name).c_str(), static_cast<double>(p.minValue), static_cast<double>(p.maxValue),
-                    static_cast<double>(p.defaultValue));
+    for (const auto& p : radiff::core::paramTable()) {
+        const std::string path = radiff::core::paramPath(p.id);
+        if (p.isEnum()) {
+            std::string names;
+            for (auto n : p.enumNames)
+                names += (names.empty() ? "" : "|") + std::string(n);
+            std::printf("%-40s %-18s %s (default %s)\n", path.c_str(), std::string(p.name).c_str(), names.c_str(),
+                        std::string(radiff::core::enumName(p.id, p.defaultValue)).c_str());
+        } else if (p.isBoolean()) {
+            std::printf("%-40s %-18s true|false (default %s)\n", path.c_str(), std::string(p.name).c_str(),
+                        p.defaultValue >= 0.5f ? "true" : "false");
+        } else {
+            std::printf("%-40s %-18s %g..%g (default %g)\n", path.c_str(), std::string(p.name).c_str(),
+                        static_cast<double>(p.minValue), static_cast<double>(p.maxValue),
+                        static_cast<double>(p.defaultValue));
+        }
+    }
 }
 
 std::optional<radiff::audioio::SampleFormat> parseFormat(std::string_view s) {
     using F = radiff::audioio::SampleFormat;
-    if (s == "pcm16") return F::Pcm16;
-    if (s == "pcm24") return F::Pcm24;
-    if (s == "pcm32") return F::Pcm32;
-    if (s == "float32") return F::Float32;
+    if (s == "pcm16" || s == "16") return F::Pcm16;
+    if (s == "pcm24" || s == "24") return F::Pcm24;
+    if (s == "pcm32" || s == "32") return F::Pcm32;
+    if (s == "float32" || s == "float") return F::Float32;
     return std::nullopt;
 }
 
-int fail(ExitCode code, const std::string& msg) {
-    std::fprintf(stderr, "error: %s\n", msg.c_str());
-    return radiff::app::toInt(code);
-}
-
-int run(const std::vector<std::string>& args) {
+struct Options {
     radiff::app::FileJob job;
     std::optional<std::string> presetPath;
     std::vector<std::pair<std::string, std::string>> overrides;
-    bool quiet = false;
+    bool quiet = false, verbose = false, jsonResult = false;
+};
 
+int emit(const Options& o, ExitCode code, const std::string& msg, const radiff::app::FileJobReport* report,
+         double seconds) {
+    if (o.jsonResult) {
+        nlohmann::ordered_json j;
+        j["ok"] = code == ExitCode::Success;
+        j["exitCode"] = radiff::app::toInt(code);
+        j["status"] = radiff::app::describe(code);
+        j["message"] = msg;
+        j["input"] = radiff::platform::pathToUtf8(o.job.input);
+        j["output"] = radiff::platform::pathToUtf8(o.job.output);
+        if (report) {
+            j["frames"] = report->framesProcessed;
+            j["sampleRate"] = report->inputInfo.sampleRate;
+            j["channels"] = report->inputInfo.numChannels;
+            j["latencyFramesCompensated"] = report->latencyFrames;
+            j["inputPeakDbfs"] = report->peakIn > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakIn)) : -144.0;
+            j["outputPeakDbfs"] = report->peakOut > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakOut)) : -144.0;
+        }
+        j["seconds"] = seconds;
+        std::printf("%s\n", j.dump().c_str());
+    }
+    if (code != ExitCode::Success) {
+        std::fprintf(stderr, "error: %s\n", msg.c_str());
+    } else if (!o.quiet && !o.jsonResult) {
+        std::printf("%s -> %s: %s (in %.1f dBFS, out %.1f dBFS)\n", radiff::platform::pathToUtf8(o.job.input).c_str(),
+                    radiff::platform::pathToUtf8(o.job.output).c_str(), msg.c_str(),
+                    report && report->peakIn > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakIn)) : -144.0,
+                    report && report->peakOut > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakOut)) : -144.0);
+        if (o.verbose && report)
+            std::printf("latency compensated: %zu frames; elapsed %.3f s (%.0fx real time)\n", report->latencyFrames,
+                        seconds,
+                        seconds > 0.0 ? (static_cast<double>(report->framesProcessed) / report->inputInfo.sampleRate) / seconds : 0.0);
+    }
+    return radiff::app::toInt(code);
+}
+
+int usageError(const std::string& msg) {
+    std::fprintf(stderr, "error: %s\n", msg.c_str());
+    return radiff::app::toInt(ExitCode::UsageError);
+}
+
+int run(const std::vector<std::string>& args) {
+    Options o;
     auto need = [&](std::size_t i, std::string_view flag) -> const std::string* {
         if (i + 1 >= args.size()) {
             std::fprintf(stderr, "error: %.*s requires a value\n", static_cast<int>(flag.size()), flag.data());
@@ -91,37 +151,39 @@ int run(const std::vector<std::string>& args) {
         if (a == "--help" || a == "-h") { printUsage(stdout); return 0; }
         if (a == "--version") { std::printf("%s\n", radiff::core::kVersionString); return 0; }
         if (a == "--list-params") { printParams(); return 0; }
-        if (a == "--quiet") { quiet = true; continue; }
-        if (a == "--no-overwrite") { job.overwrite = false; continue; }
-        if (a == "--input") { auto v = need(i, a); if (!v) return 2; job.input = radiff::platform::pathFromUtf8(*v); ++i; continue; }
-        if (a == "--output") { auto v = need(i, a); if (!v) return 2; job.output = radiff::platform::pathFromUtf8(*v); ++i; continue; }
-        if (a == "--preset") { auto v = need(i, a); if (!v) return 2; presetPath = *v; ++i; continue; }
-        if (a == "--format") {
+        if (a == "--quiet") { o.quiet = true; continue; }
+        if (a == "--verbose") { o.verbose = true; continue; }
+        if (a == "--json-result") { o.jsonResult = true; continue; }
+        if (a == "--overwrite") { o.job.overwrite = true; continue; }
+        if (a == "--input") { auto v = need(i, a); if (!v) return 2; o.job.input = radiff::platform::pathFromUtf8(*v); ++i; continue; }
+        if (a == "--output") { auto v = need(i, a); if (!v) return 2; o.job.output = radiff::platform::pathFromUtf8(*v); ++i; continue; }
+        if (a == "--preset") { auto v = need(i, a); if (!v) return 2; o.presetPath = *v; ++i; continue; }
+        if (a == "--format" || a == "--bit-depth") {
             auto v = need(i, a); if (!v) return 2;
             auto f = parseFormat(*v);
-            if (!f) return fail(ExitCode::UsageError, "Unknown --format '" + *v + "'");
-            job.outputFormat = f; ++i; continue;
+            if (!f) return usageError("Unknown " + a + " '" + *v + "'");
+            o.job.outputFormat = f; ++i; continue;
         }
         if (a == "--block") {
             auto v = need(i, a); if (!v) return 2;
             const auto n = radiff::platform::parseInteger(*v);
             if (!n || *n <= 0 || *n > 65536)
-                return fail(ExitCode::UsageError, "--block must be an integer between 1 and 65536");
-            job.blockFrames = static_cast<std::size_t>(*n); ++i; continue;
+                return usageError("--block must be an integer between 1 and 65536");
+            o.job.blockFrames = static_cast<std::size_t>(*n); ++i; continue;
         }
         if (a == "--set") {
             auto v = need(i, a); if (!v) return 2;
             const auto eq = v->find('=');
             if (eq == std::string::npos || eq == 0)
-                return fail(ExitCode::UsageError, "--set expects key=value, got '" + *v + "'");
-            overrides.emplace_back(v->substr(0, eq), v->substr(eq + 1)); ++i; continue;
+                return usageError("--set expects module.key=value, got '" + *v + "'");
+            o.overrides.emplace_back(v->substr(0, eq), v->substr(eq + 1)); ++i; continue;
         }
         std::fprintf(stderr, "error: unknown argument '%s'\n\n", a.c_str());
         printUsage(stderr);
         return 2;
     }
 
-    if (job.input.empty() || job.output.empty()) {
+    if (o.job.input.empty() || o.job.output.empty()) {
         std::fputs("error: --input and --output are required\n\n", stderr);
         printUsage(stderr);
         return 2;
@@ -129,33 +191,29 @@ int run(const std::vector<std::string>& args) {
 
     // Sonic settings: preset, then overrides.
     radiff::presets::Preset preset;
-    if (presetPath) {
-        auto r = radiff::presets::loadPresetFile(radiff::platform::pathFromUtf8(*presetPath), preset);
+    if (o.presetPath) {
+        auto r = radiff::presets::loadPresetFile(radiff::platform::pathFromUtf8(*o.presetPath), preset);
         if (!r.ok())
-            return fail(ExitCode::PresetError, r.error);
-        if (!quiet)
+            return emit(o, ExitCode::PresetError, r.error, nullptr, 0.0);
+        if (!o.quiet)
             for (const auto& w : r.warnings)
                 std::fprintf(stderr, "warning: %s\n", w.c_str());
     }
-    for (const auto& [key, value] : overrides) {
-        const auto id = radiff::core::paramIdForKey(key);
+    for (const auto& [key, value] : o.overrides) {
+        const auto id = radiff::core::paramIdForPath(key);
         if (!id)
-            return fail(ExitCode::UsageError, "Unknown parameter '" + key + "' (see --list-params)");
-        const auto f = radiff::platform::parseNumber(value);
+            return usageError("Unknown parameter '" + key + "' (see --list-params)");
+        const auto f = radiff::core::parseParamValue(*id, value);
         if (!f)
-            return fail(ExitCode::UsageError, "Parameter '" + key + "' needs a numeric value, got '" + value + "'");
-        preset.parameters.set(*id, static_cast<float>(*f));
+            return usageError("Invalid value '" + value + "' for parameter '" + key + "'");
+        preset.parameters.set(*id, *f);
     }
-    job.parameters = preset.parameters;
+    o.job.parameters = preset.parameters;
 
-    const auto report = radiff::app::processFile(job);
-    if (report.exitCode != ExitCode::Success)
-        return fail(report.exitCode, report.message);
-    if (!quiet)
-        std::printf("%s -> %s: %s (peak %.2f dBFS)\n", radiff::platform::pathToUtf8(job.input).c_str(),
-                    radiff::platform::pathToUtf8(job.output).c_str(), report.message.c_str(),
-                    report.peakOut > 0.0f ? 20.0 * std::log10(static_cast<double>(report.peakOut)) : -144.0);
-    return 0;
+    const auto t0 = std::chrono::steady_clock::now();
+    const auto report = radiff::app::processFile(o.job);
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    return emit(o, report.exitCode, report.message, &report, seconds);
 }
 
 } // namespace
@@ -165,6 +223,7 @@ int main(int argc, char** argv) {
     try {
         return run(radiff::platform::commandLineUtf8(argc, argv));
     } catch (const std::exception& e) {
-        return fail(ExitCode::InternalError, std::string("unexpected exception: ") + e.what());
+        std::fprintf(stderr, "error: unexpected exception: %s\n", e.what());
+        return radiff::app::toInt(ExitCode::InternalError);
     }
 }

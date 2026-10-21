@@ -20,9 +20,9 @@ struct Preset {
     [[nodiscard]] bool operator==(const Preset&) const = default;
 };
 
-/// Current on-disk schema version. Bump only on incompatible changes; additive
-/// parameters are handled by "missing key -> default".
-constexpr int kPresetFormatVersion = 1;
+/// On-disk schema version (structure of the JSON). Bump only on incompatible changes
+/// and add a migration in fromJson(); additive parameters are "missing key -> default".
+constexpr int kPresetSchemaVersion = 1;
 constexpr const char* kPresetFileExtension = ".radvoice.json";
 
 struct PresetResult {
@@ -31,15 +31,23 @@ struct PresetResult {
     [[nodiscard]] bool ok() const noexcept { return error.empty(); }
 };
 
-/// Serialises a preset to its canonical JSON text (UTF-8, LF line endings, sorted keys)
-/// so that identical presets produce byte-identical files on every platform.
+/// Serialises a preset to its canonical JSON text (UTF-8, LF, fixed key order, 2-space
+/// indent) so identical presets produce byte-identical files on every platform.
+/// Layout (see docs/PRESET-FORMAT.md):
+///   schemaVersion, engineVersion, algorithmVersion, name, description, author,
+///   signalOrder[], bypass, modules{input, eq{bands[]}, expander, compressor1, compressor2},
+///   output{gainDb}
 [[nodiscard]] std::string toJson(const Preset& preset);
 
-/// Parses JSON text. Unknown parameter keys are reported as warnings and ignored;
-/// missing parameters take their defaults; out-of-range values are clamped.
+/// Parses JSON text. Unknown keys/modules are reported as warnings and ignored (forward
+/// compatibility); missing parameters take defaults; out-of-range values are clamped;
+/// an unsupported schema version or signal order is an error.
 PresetResult fromJson(const std::string& json, Preset& preset);
 
 PresetResult loadPresetFile(const std::filesystem::path& file, Preset& preset);
 PresetResult savePresetFile(const std::filesystem::path& file, const Preset& preset);
+
+/// Canonical v1 signal order as written to `signalOrder`.
+[[nodiscard]] const std::vector<std::string>& canonicalSignalOrder();
 
 } // namespace radiff::presets

@@ -17,6 +17,8 @@ const char* describe(ExitCode c) noexcept {
     case ExitCode::PresetError: return "preset error";
     case ExitCode::ProcessingError: return "processing error";
     case ExitCode::OutputError: return "output error";
+    case ExitCode::ValidationError: return "validation error";
+    case ExitCode::Cancelled: return "cancelled";
     case ExitCode::InternalError: return "internal error";
     }
     return "unknown";
@@ -57,6 +59,12 @@ FileJobReport processFile(const FileJob& job, const ProgressFn& progress) {
             return fail(ExitCode::InputError, "Only mono and stereo input is supported (file has " +
                                                   std::to_string(report.inputInfo.numChannels) + " channels)");
 
+        float inputPeak = 0.0f;
+        for (std::size_t c = 0; c < audio.numChannels(); ++c)
+            for (float v : audio.channel(c))
+                inputPeak = std::max(inputPeak, std::fabs(v));
+
+        // A fresh, fully independent engine per job: concurrent jobs never share state.
         core::Engine engine;
         core::EngineConfig cfg;
         cfg.sampleRate = report.inputInfo.sampleRate;
@@ -64,6 +72,8 @@ FileJobReport processFile(const FileJob& job, const ProgressFn& progress) {
         cfg.numChannels = audio.numChannels();
         engine.prepare(cfg);
         engine.setParameters(job.parameters);
+        const std::size_t latency = engine.latencyFrames();
+        report.latencyFrames = latency;
 
         const std::size_t total = audio.numFrames();
         for (std::size_t pos = 0; pos < total; pos += job.blockFrames) {
@@ -71,6 +81,23 @@ FileJobReport processFile(const FileJob& job, const ProgressFn& progress) {
             engine.process(audio.view(pos, n));
             if (progress)
                 progress(static_cast<double>(pos + n) / static_cast<double>(std::max<std::size_t>(total, 1)));
+        }
+        // Latency compensation: flush `latency` frames of silence through the engine and
+        // shift the result so output frame i corresponds to input frame i.
+        if (latency > 0) {
+            core::AudioBuffer tail(audio.numChannels(), latency);
+            for (std::size_t pos = 0; pos < latency; pos += job.blockFrames) {
+                const std::size_t n = std::min(job.blockFrames, latency - pos);
+                engine.process(tail.view(pos, n));
+            }
+            for (std::size_t c = 0; c < audio.numChannels(); ++c) {
+                auto ch = audio.channel(c);
+                const std::size_t keep = total > latency ? total - latency : 0;
+                for (std::size_t i = 0; i < keep; ++i)
+                    ch[i] = ch[i + latency];
+                for (std::size_t i = keep; i < total; ++i)
+                    ch[i] = tail.channel(c)[i - keep];
+            }
         }
         engine.release();
         report.framesProcessed = total;
@@ -83,6 +110,11 @@ FileJobReport processFile(const FileJob& job, const ProgressFn& progress) {
                 report.peakOut = std::max(report.peakOut, std::fabs(v));
             }
         }
+        report.peakIn = inputPeak;
+        // Unexpected silence: speech went in (above -60 dBFS) but nothing came out.
+        // Legitimately silent inputs pass through this check untouched.
+        if (inputPeak > 0.001f && report.peakOut < 1e-6f)
+            return fail(ExitCode::ValidationError, "Output is silent although the input contains signal; output withheld");
 
         const audioio::SampleFormat outFormat = job.outputFormat.value_or(report.inputInfo.format);
         const double sampleRate = report.inputInfo.sampleRate;
@@ -107,7 +139,8 @@ FileJobReport processFile(const FileJob& job, const ProgressFn& progress) {
             return {};
         };
         if (auto r = writeFileTransactionally(job.output, write, validate); !r.ok())
-            return fail(ExitCode::OutputError, r.error);
+            return fail(r.error.rfind("Output validation failed", 0) == 0 ? ExitCode::ValidationError : ExitCode::OutputError,
+                        r.error);
 
         report.message = "Processed " + std::to_string(total) + " frames, " + std::to_string(audio.numChannels()) +
                          " ch @ " + std::to_string(static_cast<long long>(sampleRate)) + " Hz";

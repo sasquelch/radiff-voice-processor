@@ -87,12 +87,17 @@ int genWav(const Args& a) {
 int genPreset(const Args& a) {
     radiff::presets::Preset p;
     p.name = a.kv.count("name") ? a.kv.at("name") : "Test";
+    p.description = a.kv.count("description") ? a.kv.at("description") : "";
+    p.author = a.kv.count("author") ? a.kv.at("author") : "";
     for (const auto& s : a.sets) {
         const auto eq = s.find('=');
-        const auto id = radiff::core::paramIdForKey(s.substr(0, eq));
+        const auto id = radiff::core::paramIdForPath(s.substr(0, eq));
         if (!id)
             return die("unknown param " + s);
-        p.parameters.set(*id, std::stof(s.substr(eq + 1)));
+        const auto v = radiff::core::parseParamValue(*id, s.substr(eq + 1));
+        if (!v)
+            return die("bad value " + s);
+        p.parameters.set(*id, *v);
     }
     auto r = radiff::presets::savePresetFile(radiff::platform::pathFromUtf8(a.kv.at("out")), p);
     return r.ok() ? 0 : die(r.error);
@@ -113,10 +118,13 @@ int verifyWav(const Args& a) {
     if (a.kv.count("format") && a.kv.at("format") != formatName(info.format))
         return die(std::string("format ") + formatName(info.format));
     if (a.kv.count("peak-db")) {
+        const std::size_t from = a.kv.count("from-seconds")
+                                     ? static_cast<std::size_t>(std::stod(a.kv.at("from-seconds")) * info.sampleRate)
+                                     : 0;
         float peak = 0.0f;
         for (std::size_t c = 0; c < buf.numChannels(); ++c)
-            for (float v : buf.channel(c))
-                peak = std::max(peak, std::fabs(v));
+            for (std::size_t i = from; i < buf.numFrames(); ++i)
+                peak = std::max(peak, std::fabs(buf.channel(c)[i]));
         const double peakDb = peak > 0.0f ? 20.0 * std::log10(static_cast<double>(peak)) : -200.0;
         const double want = std::stod(a.kv.at("peak-db"));
         const double tol = a.kv.count("tol-db") ? std::stod(a.kv.at("tol-db")) : 0.1;

@@ -1,7 +1,10 @@
 # Continuous integration
 
-`.github/workflows/ci.yml` runs two independent jobs on every push to `main`, every pull
-request and on manual dispatch. Both check out the same commit with submodules.
+`.github/workflows/ci.yml` defines two independent jobs that check out the same commit with
+submodules. **As of 2026-10-21 the workflow is manual-only (`workflow_dispatch`)** because the
+repository owner's GitHub Actions quota is exhausted; the workflow is *authored, not executed*.
+Re-add `push`/`pull_request` triggers when minutes are available, or register a self-hosted
+Windows runner (free) as described below.
 
 | Job | Runner | Steps |
 |---|---|---|

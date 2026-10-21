@@ -67,6 +67,11 @@ carries the stable preset key, display name, unit, range, default and step. The 
 format, CLI `--set`, plug-in parameter lists and UI are all generated from this table;
 adding a parameter is one line plus its DSP.
 
-**The parameter set currently holds a Phase 1 placeholder chain (bypass, input gain,
-output gain).** The full processing chain is specified by the master development
-specification and is implemented in Phase 2.
+The registry is an X-macro (`RADIFF_PARAM_LIST`) that generates both the `ParamId` enum and
+the descriptor table, so they cannot drift. Parameters are grouped by `Module` (global, input,
+eq, expander, compressor1, compressor2, output) and EQ bands carry a band index; the preset
+writer produces the nested JSON from the same table. Processing code lives in
+`src/core/dsp/` (primitives) and `src/core/modules/` (stages); see `docs/DSP_DESIGN.md`.
+
+Mapping to the directory names suggested in the master spec: `src/dsp` → `src/core`,
+`src/common` → `src/core/Parameters.*` + `src/app`, `src/plugin` → `src/plugins`.

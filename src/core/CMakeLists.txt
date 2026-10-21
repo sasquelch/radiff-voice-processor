@@ -8,6 +8,10 @@
 add_library(radiff_core STATIC
     src/Engine.cpp
     src/Parameters.cpp
+    src/modules/InputStage.cpp
+    src/modules/Equalizer.cpp
+    src/modules/Expander.cpp
+    src/modules/Compressor.cpp
 )
 add_library(radiff::core ALIAS radiff_core)
 

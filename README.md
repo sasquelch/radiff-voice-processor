@@ -7,12 +7,19 @@ all driven by one original, framework-independent C++20 DSP engine and one porta
 
 | Artifact | macOS | Windows | Status |
 |---|---|---|---|
-| `RaDiffVoiceCLI` / `RaDiffVoiceCLI.exe` | Universal (arm64 + x86_64) | x64 | **Builds and passes tests on macOS**; Windows pending first CI run |
+| `RaDiffVoiceCLI` / `RaDiffVoiceCLI.exe` | Universal (arm64 + x86_64) | x64 | **Real DSP chain, builds and passes 31 tests on macOS**; Windows authored, not yet compiled (no CI minutes / no Windows PC) |
 | `RaDiff Voice Processor.app` / `RaDiffVoiceProcessor.exe` | planned (Phase 5) | planned (Phase 5) | not started |
 | `RaDiff Voice Processor.vst3` | planned (Phase 6) | planned (Phase 6) | not started |
 | `RaDiff Voice Processor.component` (AUv2) | planned (Phase 6) | n/a | not started |
 
-See [docs/STATUS.md](docs/STATUS.md) for the honest, per-platform verification matrix.
+See [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md) for the honest, per-platform
+verification matrix and [MASTER_DEVELOPMENT_SPEC.md](MASTER_DEVELOPMENT_SPEC.md) for the
+authoritative specification.
+
+**Processing chain (v1):** input trim → DC blocker → 12/24 dB/oct high-pass → 5-band EQ →
+speech-preserving downward expander (soft knee, hysteresis, hold, lookahead, hard attenuation
+cap) → leveling compressor → density compressor → output trim. De-esser, multiband expander,
+presence, saturation and limiter follow in Phase 6.
 
 ## Quick start (macOS)
 
@@ -47,7 +54,11 @@ Identical arguments, exit codes and processing on both platforms:
 RaDiffVoiceCLI.exe --input "D:\Audio\input.wav" --output "D:\Audio\output.wav" --preset "D:\Audio\Voice.radvoice.json"
 ```
 
-Exit codes: `0` success, `2` usage, `3` input, `4` preset, `5` processing, `6` output, `70` internal.
+Exit codes: `0` verified success, `2` usage, `3` input, `4` preset, `5` processing, `6` output I/O,
+`7` validation, `8` cancelled, `70` internal. `--overwrite` is required to replace an existing
+output; the input is never overwritten. `--set expander.thresholdDbfs=-44` overrides any
+parameter after the preset (`--list-params` prints them all); `--json-result` prints a
+machine-readable summary.
 Output files are written to a hidden temporary file beside the destination, flushed to disk,
 re-opened and validated, then atomically renamed into place. A failed run never leaves a
 partial or missing deliverable.
@@ -58,11 +69,15 @@ partial or missing deliverable.
 - [docs/BUILDING.md](docs/BUILDING.md) – toolchains, presets, options, deployment targets
 - [docs/CI.md](docs/CI.md) – GitHub Actions jobs, free-tier limits, building without hosted CI
 - [docs/PRESET-FORMAT.md](docs/PRESET-FORMAT.md) – the `.radvoice.json` schema
-- [docs/STATUS.md](docs/STATUS.md) – verification matrix (compiles / tests / validators / DAW / listening / release)
-- [docs/LICENSES.md](docs/LICENSES.md) – third-party licence review for closed-source distribution
+- [docs/DSP_DESIGN.md](docs/DSP_DESIGN.md) – algorithms, detector/ballistics semantics, latency
+- [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md) – phase progress and verification matrix
+- [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) – executed test and real-audio results with commands
+- [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) – release gates
+- [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) – third-party licence review for closed-source distribution
+- [CLAUDE.md](CLAUDE.md) – working conventions, build commands, active milestone
 - [third_party/README.md](third_party/README.md) – pinned dependency versions
 
 ## Licence
 
 Proprietary. Copyright (c) 2026. All rights reserved. Third-party components are listed in
-`docs/LICENSES.md`.
+`THIRD_PARTY_LICENSES.md`.

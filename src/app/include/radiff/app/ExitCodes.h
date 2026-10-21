@@ -10,7 +10,9 @@ enum class ExitCode : int {
     InputError = 3,        ///< input file missing, unreadable or unsupported
     PresetError = 4,       ///< preset missing or invalid
     ProcessingError = 5,   ///< DSP failure (NaN/inf detected, unsupported configuration)
-    OutputError = 6,       ///< could not write, validate or publish the output
+    OutputError = 6,       ///< could not write or publish the output (I/O)
+    ValidationError = 7,   ///< output written but failed verification (structure, length, silence)
+    Cancelled = 8,         ///< cancelled by the user or a timeout
     InternalError = 70,    ///< unexpected exception
 };
 

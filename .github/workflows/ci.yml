@@ -10,11 +10,11 @@
 
 name: CI
 
+# NOTE (2026-10-21): the owner's GitHub Actions quota is exhausted, so this workflow is
+# manual-only (workflow_dispatch). Re-enable push/pull_request triggers when minutes are
+# available or a self-hosted Windows runner is registered (see docs/CI.md). Until then,
+# Windows builds are "authored, not executed" and are reported as such.
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
-  pull_request:
   workflow_dispatch:
 
 concurrency:

@@ -3,55 +3,153 @@
 #include <array>
 #include <cstddef>
 #include <optional>
+#include <span>
+#include <string>
 #include <string_view>
 
 namespace radiff::core {
 
-/// Identifiers for every user-facing DSP parameter.
-///
-/// PHASE 2 NOTE: the full parameter set (gate, de-esser, EQ, compression, limiting,
-/// loudness, etc.) is defined by the master specification and will be added here.
-/// The ordering of this enum is the stable parameter index used by the plug-in
-/// formats, so new parameters are appended, never inserted.
+// ---------------------------------------------------------------------------
+// Modules of the canonical signal chain (section 5 of the master spec).
+// Order here IS the fixed v1 processing order.
+// ---------------------------------------------------------------------------
+enum class Module : std::size_t { Global = 0, Input, Eq, Expander, Compressor1, Compressor2, Output, Count };
+constexpr std::size_t kNumModules = static_cast<std::size_t>(Module::Count);
+[[nodiscard]] std::string_view moduleKey(Module m) noexcept; ///< JSON key, e.g. "compressor1"
+
+enum class ParamUnit { None, Decibels, Hertz, Milliseconds, Ratio, Q, Fraction, Boolean, Enum, DbPerOctave };
+
+inline constexpr std::array<std::string_view, 5> kEqTypeNames{"bell", "lowShelf", "highShelf", "highPass", "lowPass"};
+inline constexpr std::array<std::string_view, 2> kDetectorNames{"rms", "peak"};
+inline constexpr std::array<std::string_view, 0> kNoEnum{};
+
+enum class EqBandType : int { Bell = 0, LowShelf, HighShelf, HighPass, LowPass };
+enum class DetectorType : int { Rms = 0, Peak };
+
+// ---------------------------------------------------------------------------
+// The parameter list. X(Id, Module, BandIndex, jsonKey, displayName, unit, min, max, default, step, enumNames)
+// The enum AND the table are generated from this list, so they can never drift.
+// APPEND ONLY: the enum value is the stable automation/state index for every host.
+// ---------------------------------------------------------------------------
+#define RADIFF_EQ_BAND(X, N, IDX, DEF_TYPE, DEF_HZ, DEF_Q)                                                           \
+    X(EqBand##N##Enabled, Eq, IDX, "enabled", "EQ " #N " On", Boolean, 0, 1, 0, 1, kNoEnum)                           \
+    X(EqBand##N##Type, Eq, IDX, "type", "EQ " #N " Type", Enum, 0, 4, DEF_TYPE, 1, kEqTypeNames)                      \
+    X(EqBand##N##FrequencyHz, Eq, IDX, "frequencyHz", "EQ " #N " Freq", Hertz, 20, 20000, DEF_HZ, 0, kNoEnum)         \
+    X(EqBand##N##GainDb, Eq, IDX, "gainDb", "EQ " #N " Gain", Decibels, -18, 18, 0, 0, kNoEnum)                       \
+    X(EqBand##N##Q, Eq, IDX, "q", "EQ " #N " Q", Q, 0.2, 12, DEF_Q, 0, kNoEnum)
+
+#define RADIFF_COMPRESSOR(X, P, M, LABEL, DEF_EN, DEF_THR, DEF_RATIO, DEF_KNEE, DEF_ATT, DEF_REL, DEF_DET, DEF_RMS)    \
+    X(P##Enabled, M, -1, "enabled", LABEL " On", Boolean, 0, 1, DEF_EN, 1, kNoEnum)                                   \
+    X(P##ThresholdDbfs, M, -1, "thresholdDbfs", LABEL " Threshold", Decibels, -60, 0, DEF_THR, 0, kNoEnum)            \
+    X(P##Ratio, M, -1, "ratio", LABEL " Ratio", Ratio, 1, 20, DEF_RATIO, 0, kNoEnum)                                  \
+    X(P##KneeDb, M, -1, "kneeDb", LABEL " Knee", Decibels, 0, 18, DEF_KNEE, 0, kNoEnum)                               \
+    X(P##AttackMs, M, -1, "attackMs", LABEL " Attack", Milliseconds, 0.1, 100, DEF_ATT, 0, kNoEnum)                   \
+    X(P##ReleaseMs, M, -1, "releaseMs", LABEL " Release", Milliseconds, 10, 2000, DEF_REL, 0, kNoEnum)                \
+    X(P##MakeupGainDb, M, -1, "makeupGainDb", LABEL " Makeup", Decibels, -12, 24, 0, 0, kNoEnum)                      \
+    X(P##Detector, M, -1, "detector", LABEL " Detector", Enum, 0, 1, DEF_DET, 1, kDetectorNames)                      \
+    X(P##RmsWindowMs, M, -1, "rmsWindowMs", LABEL " RMS Window", Milliseconds, 1, 100, DEF_RMS, 0, kNoEnum)           \
+    X(P##SidechainHighPassEnabled, M, -1, "sidechainHighPassEnabled", LABEL " SC HPF On", Boolean, 0, 1, 0, 1, kNoEnum) \
+    X(P##SidechainHighPassHz, M, -1, "sidechainHighPassHz", LABEL " SC HPF", Hertz, 20, 2000, 100, 0, kNoEnum)        \
+    X(P##AutoRelease, M, -1, "autoRelease", LABEL " Auto Release", Boolean, 0, 1, 0, 1, kNoEnum)                      \
+    X(P##Wet, M, -1, "wet", LABEL " Wet", Fraction, 0, 1, 1, 0, kNoEnum)                                              \
+    X(P##StereoLink, M, -1, "stereoLink", LABEL " Stereo Link", Boolean, 0, 1, 1, 1, kNoEnum)
+
+#define RADIFF_PARAM_LIST(X)                                                                                           \
+    X(Bypass, Global, -1, "bypass", "Bypass", Boolean, 0, 1, 0, 1, kNoEnum)                                            \
+    X(InputGainDb, Input, -1, "gainDb", "Input Gain", Decibels, -24, 24, 0, 0, kNoEnum)                                \
+    X(InputDcBlockEnabled, Input, -1, "dcBlockEnabled", "DC Block", Boolean, 0, 1, 1, 1, kNoEnum)                      \
+    X(InputHighPassEnabled, Input, -1, "highPassEnabled", "HPF On", Boolean, 0, 1, 1, 1, kNoEnum)                      \
+    X(InputHighPassHz, Input, -1, "highPassHz", "HPF Freq", Hertz, 20, 250, 80, 0, kNoEnum)                            \
+    X(InputHighPassSlopeDbOct, Input, -1, "highPassSlopeDbOct", "HPF Slope", DbPerOctave, 12, 24, 12, 12, kNoEnum)     \
+    X(EqEnabled, Eq, -1, "enabled", "EQ On", Boolean, 0, 1, 1, 1, kNoEnum)                                             \
+    RADIFF_EQ_BAND(X, 1, 0, 1, 120, 0.7)                                                                               \
+    RADIFF_EQ_BAND(X, 2, 1, 0, 300, 1.0)                                                                               \
+    RADIFF_EQ_BAND(X, 3, 2, 0, 1200, 1.0)                                                                              \
+    RADIFF_EQ_BAND(X, 4, 3, 0, 3500, 1.0)                                                                              \
+    RADIFF_EQ_BAND(X, 5, 4, 2, 10000, 0.7)                                                                             \
+    X(ExpEnabled, Expander, -1, "enabled", "Expander On", Boolean, 0, 1, 1, 1, kNoEnum)                                \
+    X(ExpThresholdDbfs, Expander, -1, "thresholdDbfs", "Exp Threshold", Decibels, -80, 0, -48, 0, kNoEnum)             \
+    X(ExpRatio, Expander, -1, "ratio", "Exp Ratio", Ratio, 1, 8, 2, 0, kNoEnum)                                        \
+    X(ExpKneeDb, Expander, -1, "kneeDb", "Exp Knee", Decibels, 0, 18, 6, 0, kNoEnum)                                   \
+    X(ExpAttackMs, Expander, -1, "attackMs", "Exp Attack", Milliseconds, 0.1, 100, 5, 0, kNoEnum)                      \
+    X(ExpHoldMs, Expander, -1, "holdMs", "Exp Hold", Milliseconds, 0, 1000, 120, 0, kNoEnum)                           \
+    X(ExpReleaseMs, Expander, -1, "releaseMs", "Exp Release", Milliseconds, 10, 2000, 250, 0, kNoEnum)                 \
+    X(ExpHysteresisDb, Expander, -1, "hysteresisDb", "Exp Hysteresis", Decibels, 0, 12, 4, 0, kNoEnum)                 \
+    X(ExpDetector, Expander, -1, "detector", "Exp Detector", Enum, 0, 1, 0, 1, kDetectorNames)                         \
+    X(ExpRmsWindowMs, Expander, -1, "rmsWindowMs", "Exp RMS Window", Milliseconds, 1, 100, 10, 0, kNoEnum)             \
+    X(ExpSidechainHighPassEnabled, Expander, -1, "sidechainHighPassEnabled", "Exp SC HPF On", Boolean, 0, 1, 0, 1, kNoEnum) \
+    X(ExpSidechainHighPassHz, Expander, -1, "sidechainHighPassHz", "Exp SC HPF", Hertz, 20, 2000, 100, 0, kNoEnum)     \
+    X(ExpSidechainLowPassEnabled, Expander, -1, "sidechainLowPassEnabled", "Exp SC LPF On", Boolean, 0, 1, 0, 1, kNoEnum) \
+    X(ExpSidechainLowPassHz, Expander, -1, "sidechainLowPassHz", "Exp SC LPF", Hertz, 1000, 20000, 8000, 0, kNoEnum)   \
+    X(ExpLookaheadMs, Expander, -1, "lookaheadMs", "Exp Lookahead", Milliseconds, 0, 20, 0, 0, kNoEnum)                \
+    X(ExpMaxAttenuationDb, Expander, -1, "maxAttenuationDb", "Exp Max Atten", Decibels, 0, 60, 10, 0, kNoEnum)         \
+    X(ExpWet, Expander, -1, "wet", "Exp Wet", Fraction, 0, 1, 1, 0, kNoEnum)                                           \
+    X(ExpStereoLink, Expander, -1, "stereoLink", "Exp Stereo Link", Boolean, 0, 1, 1, 1, kNoEnum)                      \
+    RADIFF_COMPRESSOR(X, Comp1, Compressor1, "Comp 1", 1, -24, 2.5, 6, 10, 150, 0, 10)                                  \
+    RADIFF_COMPRESSOR(X, Comp2, Compressor2, "Comp 2", 0, -18, 4, 3, 3, 80, 1, 5)                                       \
+    X(OutputGainDb, Output, -1, "gainDb", "Output Gain", Decibels, -24, 24, 0, 0, kNoEnum)
+
 enum class ParamId : std::size_t {
-    Bypass = 0,
-    InputGainDb,
-    OutputGainDb,
-
-    Count // keep last
+#define RADIFF_PARAM_ENUM(Id, ...) Id,
+    RADIFF_PARAM_LIST(RADIFF_PARAM_ENUM)
+#undef RADIFF_PARAM_ENUM
+        Count
 };
-
 constexpr std::size_t kNumParams = static_cast<std::size_t>(ParamId::Count);
-
-enum class ParamUnit { None, Decibels, Hertz, Milliseconds, Percent, Ratio, Boolean };
+constexpr int kNumEqBands = 5;
 
 /// Static description of one parameter. The same table drives the preset format,
 /// the CLI overrides, the plug-in parameter lists and the UI.
 struct ParamInfo {
     ParamId id;
-    std::string_view key;  ///< stable, portable key used in .radvoice.json presets
+    Module module;
+    int band;              ///< EQ band index (0-based) or -1
+    std::string_view key;  ///< JSON key inside the module object
     std::string_view name; ///< display name
     ParamUnit unit;
     float minValue;
     float maxValue;
     float defaultValue;
     float step; ///< 0 = continuous
+    std::span<const std::string_view> enumNames;
+
+    [[nodiscard]] bool isBoolean() const noexcept { return unit == ParamUnit::Boolean; }
+    [[nodiscard]] bool isEnum() const noexcept { return unit == ParamUnit::Enum; }
 };
 
 [[nodiscard]] const std::array<ParamInfo, kNumParams>& paramTable() noexcept;
 [[nodiscard]] const ParamInfo& paramInfo(ParamId id) noexcept;
-[[nodiscard]] std::optional<ParamId> paramIdForKey(std::string_view key) noexcept;
 
-/// Plain value set for all parameters. Trivially copyable so hosts can hand a
-/// complete snapshot to the engine without locking.
+/// Fully-qualified portable key, e.g. "expander.thresholdDbfs" or "eq.band3.gainDb".
+/// Used by the CLI (--set) and by tests; the JSON file uses the nested structure.
+[[nodiscard]] std::string paramPath(ParamId id);
+[[nodiscard]] std::optional<ParamId> paramIdForPath(std::string_view path) noexcept;
+
+/// Looks up a parameter by module (+ band) and JSON key.
+[[nodiscard]] std::optional<ParamId> paramIdFor(Module m, int band, std::string_view key) noexcept;
+[[nodiscard]] std::optional<Module> moduleForKey(std::string_view key) noexcept;
+
+/// Parses a user-facing textual value: numbers, "true"/"false"/"on"/"off", or enum names.
+[[nodiscard]] std::optional<float> parseParamValue(ParamId id, std::string_view text) noexcept;
+/// Enum name for a value (empty if not an enum parameter).
+[[nodiscard]] std::string_view enumName(ParamId id, float value) noexcept;
+
+/// Plain value set for all parameters. Trivially copyable so hosts can hand a complete
+/// snapshot to the engine without locking.
 class ParameterSet {
 public:
     ParameterSet(); // initialised to defaults
 
     [[nodiscard]] float get(ParamId id) const noexcept { return values_[static_cast<std::size_t>(id)]; }
+    [[nodiscard]] bool getBool(ParamId id) const noexcept { return get(id) >= 0.5f; }
+    [[nodiscard]] int getInt(ParamId id) const noexcept { return static_cast<int>(get(id) + 0.5f); }
 
-    /// Sets a value, clamped to the parameter's documented range.
+    /// Sets a value, snapped to the step (if any) and clamped to the documented range.
     void set(ParamId id, float value) noexcept;
+    void set(ParamId id, bool value) noexcept { set(id, value ? 1.0f : 0.0f); }
+
+    /// EQ band accessors (band 0..4).
+    [[nodiscard]] static ParamId eqParam(int band, std::string_view key) noexcept;
 
     [[nodiscard]] bool operator==(const ParameterSet&) const noexcept = default;
 

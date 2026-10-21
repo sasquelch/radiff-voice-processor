@@ -24,8 +24,8 @@ struct FileJob {
     /// Processing block size. Hosts process in blocks, so offline processing does too;
     /// output must not depend on this value (tested).
     std::size_t blockFrames = 512;
-    /// Allow overwriting an existing output file.
-    bool overwrite = true;
+    /// Allow replacing an existing output file (explicit opt-in; the source is never overwritten).
+    bool overwrite = false;
 };
 
 struct FileJobReport {
@@ -33,6 +33,8 @@ struct FileJobReport {
     std::string message;        ///< error description or short success summary
     audioio::WavInfo inputInfo;
     std::uint64_t framesProcessed = 0;
+    std::size_t latencyFrames = 0; ///< engine latency that was compensated
+    float peakIn = 0.0f;        ///< linear peak of the input
     float peakOut = 0.0f;       ///< linear peak of the output, for logging/validation
 };
 

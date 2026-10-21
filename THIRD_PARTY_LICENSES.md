@@ -1,4 +1,4 @@
-# Third-party licence review
+# Third-party licences and notice obligations
 
 Goal: closed-source commercial distribution on macOS and Windows with no paid frameworks,
 no per-seat/runtime royalties and no copyleft obligations on our code.

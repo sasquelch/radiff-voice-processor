@@ -36,6 +36,28 @@ public:
     AudioBuffer() = default;
     AudioBuffer(std::size_t numChannels, std::size_t numFrames) { resize(numChannels, numFrames); }
 
+    // Copies/moves must rebuild the pointer tables so that a copy never aliases the source.
+    AudioBuffer(const AudioBuffer& other) : data_(other.data_) { rebuildPointers(); }
+    AudioBuffer(AudioBuffer&& other) noexcept : data_(std::move(other.data_)) {
+        rebuildPointers();
+        other.rebuildPointers();
+    }
+    AudioBuffer& operator=(const AudioBuffer& other) {
+        if (this != &other) {
+            data_ = other.data_;
+            rebuildPointers();
+        }
+        return *this;
+    }
+    AudioBuffer& operator=(AudioBuffer&& other) noexcept {
+        if (this != &other) {
+            data_ = std::move(other.data_);
+            rebuildPointers();
+            other.rebuildPointers();
+        }
+        return *this;
+    }
+
     void resize(std::size_t numChannels, std::size_t numFrames) {
         data_.assign(numChannels, std::vector<float>(numFrames, 0.0f));
         rebuildPointers();
@@ -67,6 +89,7 @@ public:
 
 private:
     void rebuildPointers() {
+        subPtrs_.clear();
         ptrs_.resize(data_.size());
         constPtrs_.resize(data_.size());
         for (std::size_t c = 0; c < data_.size(); ++c) {

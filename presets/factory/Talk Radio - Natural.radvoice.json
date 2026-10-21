@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "engineVersion": "0.1.0",
+  "algorithmVersion": 1,
+  "name": "Talk Radio - Natural",
+  "description": "Light expansion and slow, wide-knee leveling that keeps conversational dynamics. Original RaDiff starting point (algorithm v1). Not yet approved by listening tests; adjust the expander threshold to each recording's real noise floor.",
+  "author": "RaDiff",
+  "signalOrder": [
+    "input",
+    "eq",
+    "expander",
+    "compressor1",
+    "compressor2",
+    "output"
+  ],
+  "bypass": false,
+  "modules": {
+    "input": {
+      "gainDb": 0.0,
+      "dcBlockEnabled": true,
+      "highPassEnabled": true,
+      "highPassHz": 80.0,
+      "highPassSlopeDbOct": 12.0
+    },
+    "eq": {
+      "enabled": true,
+      "bands": [
+        {
+          "enabled": false,
+          "type": "lowShelf",
+          "frequencyHz": 120.0,
+          "gainDb": 0.0,
+          "q": 0.7
+        },
+        {
+          "enabled": false,
+          "type": "bell",
+          "frequencyHz": 300.0,
+          "gainDb": 0.0,
+          "q": 1.0
+        },
+        {
+          "enabled": false,
+          "type": "bell",
+          "frequencyHz": 1200.0,
+          "gainDb": 0.0,
+          "q": 1.0
+        },
+        {
+          "enabled": false,
+          "type": "bell",
+          "frequencyHz": 3500.0,
+          "gainDb": 0.0,
+          "q": 1.0
+        },
+        {
+          "enabled": false,
+          "type": "highShelf",
+          "frequencyHz": 10000.0,
+          "gainDb": 0.0,
+          "q": 0.7
+        }
+      ]
+    },
+    "expander": {
+      "enabled": true,
+      "thresholdDbfs": -50.0,
+      "ratio": 1.8,
+      "kneeDb": 6.0,
+      "attackMs": 5.0,
+      "holdMs": 120.0,
+      "releaseMs": 250.0,
+      "hysteresisDb": 4.0,
+      "detector": "rms",
+      "rmsWindowMs": 10.0,
+      "sidechainHighPassEnabled": false,
+      "sidechainHighPassHz": 100.0,
+      "sidechainLowPassEnabled": false,
+      "sidechainLowPassHz": 8000.0,
+      "lookaheadMs": 0.0,
+      "maxAttenuationDb": 8.0,
+      "wet": 1.0,
+      "stereoLink": true
+    },
+    "compressor1": {
+      "enabled": true,
+      "thresholdDbfs": -22.0,
+      "ratio": 2.0,
+      "kneeDb": 9.0,
+      "attackMs": 15.0,
+      "releaseMs": 200.0,
+      "makeupGainDb": 0.0,
+      "detector": "rms",
+      "rmsWindowMs": 10.0,
+      "sidechainHighPassEnabled": false,
+      "sidechainHighPassHz": 100.0,
+      "autoRelease": false,
+      "wet": 1.0,
+      "stereoLink": true
+    },
+    "compressor2": {
+      "enabled": false,
+      "thresholdDbfs": -18.0,
+      "ratio": 4.0,
+      "kneeDb": 3.0,
+      "attackMs": 3.0,
+      "releaseMs": 80.0,
+      "makeupGainDb": 0.0,
+      "detector": "peak",
+      "rmsWindowMs": 5.0,
+      "sidechainHighPassEnabled": false,
+      "sidechainHighPassHz": 100.0,
+      "autoRelease": false,
+      "wet": 1.0,
+      "stereoLink": true
+    }
+  },
+  "output": {
+    "gainDb": 0.0
+  }
+}

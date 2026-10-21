@@ -7,20 +7,29 @@ function(radiff_add_test name)
     target_link_libraries(${name} PRIVATE radiff::doctest radiff::compiler_settings)
     target_compile_definitions(${name} PRIVATE
         RADIFF_TEST_TMP_DIR="${CMAKE_BINARY_DIR}/test-tmp"
-        RADIFF_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+        RADIFF_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+        RADIFF_FACTORY_PRESET_DIR="${CMAKE_SOURCE_DIR}/presets/factory")
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test-tmp)
 
-radiff_add_test(test_core     core/test_engine.cpp core/test_parameters.cpp)
+radiff_add_test(test_core
+    core/test_engine.cpp
+    core/test_parameters.cpp
+    core/test_dsp_primitives.cpp
+    core/test_input_stage.cpp
+    core/test_eq.cpp
+    core/test_expander.cpp
+    core/test_compressor.cpp)
 target_link_libraries(test_core PRIVATE radiff::core)
+target_include_directories(test_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/core)
 
 radiff_add_test(test_audioio  audioio/test_wav.cpp)
 target_link_libraries(test_audioio PRIVATE radiff::audioio)
 
 radiff_add_test(test_presets  presets/test_preset.cpp)
-target_link_libraries(test_presets PRIVATE radiff::presets)
+target_link_libraries(test_presets PRIVATE radiff::presets radiff::json)
 
 radiff_add_test(test_app      app/test_transactional.cpp app/test_file_processor.cpp)
 target_link_libraries(test_app PRIVATE radiff::app)
