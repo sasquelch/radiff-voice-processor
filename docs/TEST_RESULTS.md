@@ -50,9 +50,29 @@ listening: `~/Desktop/RaDiff-Listening/C-deesser-6k-6dB-*`, `C-enhancer-lf4-hf6-
 `C-deesser-LISTEN-band-only-*` (the detection band alone). **Not yet heard by the owner**;
 no factory preset enables either stage.
 
+### Online speech tracker on real speech (simulated live path)
+
+A scratch program fed TOM0010679 through `core::Engine` in 480-frame blocks with
+`setSpeechTracking(true, 20 s)` and the Balanced preset, exactly as a live host will.
+Offline two-pass reference: speech −20.6 dBFS, threshold −32.6 dBFS.
+
+| Time into the take | tracked speech level | expander threshold |
+|---|---|---|
+| 0–7 s (first second of gated speech not yet collected) | none | −48.0 (absolute fallback) |
+| 8 s | −17.7 | −29.7 |
+| 12 s | −19.2 | −31.2 |
+| 16 s | −20.0 | −32.0 |
+| 24–30 s | −20.0 … −20.2 | −32.0 … −32.2 |
+| end (39.7 s) | −20.9 | −32.9 |
+
+Within 1 dB of the offline measurement after 12 s of speech and within 0.3 dB from 16 s on.
+Consequence for live use: the first seconds of a session run on the absolute threshold, so a
+host should seed the engine with the last known level (`setSpeechLevelDb`) when it has one;
+noted for the standalone.
+
 ### Not verified
 
-Live-input behaviour of the speech tracker on real speech (tones only so far); Windows build.
+Windows build; tracker behaviour across operators with very different levels in one session.
 
 ## 2026-10-21 — Listening round 1: "mouse clicks and heavy breathing in all samples"
 
