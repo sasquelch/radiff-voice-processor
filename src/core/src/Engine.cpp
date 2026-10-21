@@ -25,6 +25,7 @@ void Engine::prepare(const EngineConfig& config) {
         d.prepare(maxDelay);
     bypassRamp_.prepare(config_.sampleRate, 10.0);
     dry_.assign(config_.maxBlockFrames * kMaxChannels, 0.0f);
+    expander_.setSpeechLevelDb(speechLevelDb_);
 
     prepared_ = true;
     paramsDirty_ = true;
@@ -69,6 +70,11 @@ void Engine::setParameters(const ParameterSet& params) noexcept {
     }
 }
 
+void Engine::setSpeechLevelDb(std::optional<double> levelDb) noexcept {
+    speechLevelDb_ = levelDb;
+    expander_.setSpeechLevelDb(levelDb);
+}
+
 void Engine::applyParameters() noexcept {
     if (!paramsDirty_)
         return;
@@ -76,6 +82,7 @@ void Engine::applyParameters() noexcept {
     input_.update(params_);
     eq_.update(params_);
     expander_.update(params_);
+    expander_.setSpeechLevelDb(speechLevelDb_);
     comp1_.update(params_);
     comp2_.update(params_);
     outputGain_.setTarget(dsp::dbToGain(static_cast<double>(params_.get(ParamId::OutputGainDb))));

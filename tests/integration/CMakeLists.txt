@@ -38,6 +38,15 @@ add_test(NAME cli_exit_code_input      COMMAND ${TOOL} expect-exit 3 -- ${CLI} -
 add_test(NAME cli_exit_code_preset     COMMAND ${TOOL} expect-exit 4 -- ${CLI} --input "${T}/sine_mono_48k.wav" --output "${T}/x.wav" --preset "${T}/missing.radvoice.json")
 add_test(NAME cli_exit_code_same_file  COMMAND ${TOOL} expect-exit 2 -- ${CLI} --input "${T}/sine_mono_48k.wav" --output "${T}/sine_mono_48k.wav" --overwrite)
 
+# --analyze-only: no output needed, JSON carries the measurement and the resolved threshold.
+add_test(NAME cli_analyze_only_json
+    COMMAND ${CLI} --input "${T}/sine_mono_48k.wav" --analyze-only --json-result --set expander.thresholdMode=speechRelative --set expander.relativeThresholdDb=-20)
+set_tests_properties(cli_analyze_only_json PROPERTIES
+    PASS_REGULAR_EXPRESSION "\"ok\":true.*\"analyzeOnly\":true.*\"speechLevelDbfs\":-9\\.0[0-9]*.*\"expanderThresholdDbfs\":-29\\.0[0-9]*.*\"expanderThresholdMode\":\"speechRelative\"")
+add_test(NAME cli_analyze_only_text
+    COMMAND ${CLI} --input "${T}/sine_stereo_44k.wav" --analyze-only)
+set_tests_properties(cli_analyze_only_text PROPERTIES PASS_REGULAR_EXPRESSION "speech level -15\\.0.*expander threshold: -48\\.0 dBFS \\(absolute\\)")
+
 add_test(NAME cli_process_mono_preset
     COMMAND ${CLI} --input "${T}/sine_mono_48k.wav" --output "${T}/out/mono_minus6.wav" --preset "${T}/unity-minus6.radvoice.json" --overwrite)
 add_test(NAME cli_verify_mono_preset
@@ -83,6 +92,7 @@ set_tests_properties(
     cli_exit_code_bad_set cli_exit_code_input cli_exit_code_preset cli_exit_code_same_file
     cli_process_mono_preset cli_process_stereo_override cli_process_unicode_path
     cli_process_block_64 cli_process_block_4096 cli_process_factory_balanced cli_setup_existing_output
+    cli_analyze_only_json cli_analyze_only_text
     PROPERTIES FIXTURES_REQUIRED cli_inputs)
 set_tests_properties(cli_verify_mono_preset      PROPERTIES DEPENDS cli_process_mono_preset)
 set_tests_properties(cli_verify_stereo_override  PROPERTIES DEPENDS cli_process_stereo_override)

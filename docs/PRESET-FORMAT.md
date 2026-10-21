@@ -23,11 +23,12 @@ plug-ins and the AU plug-in. Schema version **1**.
       {"enabled": false, "type": "bell", "frequencyHz": 3500.0, "gainDb": 0.0, "q": 1.0},
       {"enabled": false, "type": "highShelf", "frequencyHz": 10000.0, "gainDb": 0.0, "q": 0.7}
     ]},
-    "expander": {"enabled": true, "thresholdDbfs": -48.0, "ratio": 2.0, "kneeDb": 6.0, "attackMs": 5.0, "holdMs": 120.0,
-                 "releaseMs": 250.0, "hysteresisDb": 4.0, "detector": "rms", "rmsWindowMs": 10.0,
+    "expander": {"enabled": true, "thresholdDbfs": -48.0, "ratio": 3.0, "kneeDb": 6.0, "attackMs": 5.0, "holdMs": 40.0,
+                 "releaseMs": 60.0, "hysteresisDb": 3.0, "detector": "rms", "rmsWindowMs": 10.0,
                  "sidechainHighPassEnabled": false, "sidechainHighPassHz": 100.0,
                  "sidechainLowPassEnabled": false, "sidechainLowPassHz": 8000.0,
-                 "lookaheadMs": 0.0, "maxAttenuationDb": 10.0, "wet": 1.0, "stereoLink": true},
+                 "lookaheadMs": 15.0, "maxAttenuationDb": 20.0, "wet": 1.0, "stereoLink": true,
+                 "thresholdMode": "speechRelative", "relativeThresholdDb": -12.0, "transientRejectMs": 12.0},
     "compressor1": {"enabled": true, "thresholdDbfs": -24.0, "ratio": 2.5, "kneeDb": 6.0, "attackMs": 10.0, "releaseMs": 150.0,
                     "makeupGainDb": 0.0, "detector": "rms", "rmsWindowMs": 10.0, "sidechainHighPassEnabled": false,
                     "sidechainHighPassHz": 100.0, "autoRelease": false, "wet": 1.0, "stereoLink": true},
@@ -50,6 +51,10 @@ plug-ins and the AU plug-in. Schema version **1**.
   (`module.key`, or `eq.bandN.key`). Missing parameters take defaults; unknown parameters or
   modules are ignored with a warning; out-of-range values clamp; booleans may be written as
   `true/false` or `0/1`; enums (`type`, `detector`) are strings, numbers are also accepted.
+- `expander.thresholdMode` is `"absolute"` (use `thresholdDbfs`) or `"speechRelative"` (threshold =
+  measured speech level of the recording + `relativeThresholdDb`; the measurement itself is
+  made per file by the host and is **not** stored in the preset). Files written before these
+  keys existed load unchanged: the defaults are `absolute`, `-15`, `0`.
 - The file **never** contains file paths, machine names, sample rates, channel layouts, binary
   blobs or OS-specific data. Operational settings live in CLI arguments, the app session or the
   PlayoutONE wrapper configuration.

@@ -1,6 +1,6 @@
 // radiff_testtool - portable helper for CTest-driven integration tests.
 //   gen-wav     --out <p> --rate <hz> --channels <n> --seconds <s> --format <f> --freq <hz> --amp <a>
-//   gen-preset  --out <p> --name <n> [--set key=value ...]
+//   gen-preset  --out <p> [--from <existing>] [--name <n>] [--description <d>] [--set key=value ...]
 //   verify-wav  --file <p> [--rate] [--channels] [--frames] [--format] [--peak-db <db> --tol-db <db>]
 //   compare-wav --a <p> --b <p> --tol <max abs diff>
 //   expect-exit <code> -- <command> [args...]
@@ -86,9 +86,17 @@ int genWav(const Args& a) {
 
 int genPreset(const Args& a) {
     radiff::presets::Preset p;
-    p.name = a.kv.count("name") ? a.kv.at("name") : "Test";
-    p.description = a.kv.count("description") ? a.kv.at("description") : "";
-    p.author = a.kv.count("author") ? a.kv.at("author") : "";
+    if (a.kv.count("from")) {
+        // Start from an existing preset (keeps name/description/author/values), then apply --set.
+        auto r = radiff::presets::loadPresetFile(radiff::platform::pathFromUtf8(a.kv.at("from")), p);
+        if (!r.ok())
+            return die(r.error);
+    } else {
+        p.name = "Test";
+    }
+    if (a.kv.count("name")) p.name = a.kv.at("name");
+    if (a.kv.count("description")) p.description = a.kv.at("description");
+    if (a.kv.count("author")) p.author = a.kv.at("author");
     for (const auto& s : a.sets) {
         const auto eq = s.find('=');
         const auto id = radiff::core::paramIdForPath(s.substr(0, eq));

@@ -8,8 +8,12 @@ executed test evidence in [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md).
 ## Currently active milestone
 
 **Phase 2 — real DSP engine: done for input stage, 5-band EQ, capped downward expander,
-compressor 1 + 2.** Next: Phase 3 remainder (CLI options `--sample-rate`, `--channels`,
-`--analyze-only`, `--log`, dither on bit-depth reduction), then Phase 4 standalone GUI (iPlug2).
+compressor 1 + 2.** Listening round 1 (owner: clicks + breaths audible) led to the
+speech-relative expander threshold (analysis pass, `Engine::setSpeechLevelDb`), transient
+rejection and re-tuned presets; round 2 on `~/Desktop/RaDiff-Listening/B2-*` is pending.
+Next: Phase 3 remainder (CLI options `--sample-rate`, `--channels`, `--log`, dither on
+bit-depth reduction), then Phase 4 standalone GUI (iPlug2), which needs an online speech-level
+tracker for live input (offline file mode already has the two-pass analysis).
 Phase 6 stages (de-esser, multiband expander, presence, saturation, limiter) are not implemented
 and have no placeholder parameters.
 
@@ -35,7 +39,10 @@ triggers. Windows code paths are authored and unverified until run on a Windows 
 - DAWs present: REAPER, Adobe Audition 2024/2025. Logic Pro is NOT installed (AU host test = unverified).
 - Minimum macOS deployment target is 11.0; float `std::from_chars` is unavailable there, use
   `radiff::platform::parseNumber` / `core::parseParamValue`.
-- Real voice material for listening tests: `~/Desktop/RaDiff-Listening/` (A-raw-* vs B-<preset>-*).
+- Real voice material for listening tests: `~/Desktop/RaDiff-Listening/` (A-raw-* vs
+  B2-{gentle,medium,strong}-*; Phase 2 renders in `old-phase2/`). Measured there: breaths and
+  mouse clicks sit ≈ 21 dB under the speech level, so absolute expander thresholds are useless;
+  keep presets speech-relative.
 
 ## Rules that keep the codebase honest
 

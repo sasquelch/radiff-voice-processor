@@ -204,3 +204,38 @@ TEST_CASE("independent instances do not share state") {
     fresh.process(x.view());
     CHECK(test::maxAbsDiff(x, y) == 0.0);
 }
+
+TEST_CASE("engine: speech level drives the relative expander threshold; latency = max(lookahead, reject)") {
+    core::Engine e;
+    core::EngineConfig cfg;
+    cfg.sampleRate = 48000.0;
+    cfg.numChannels = 1;
+    e.prepare(cfg);
+    ParameterSet p;
+    p.set(ParamId::ExpThresholdDbfs, -48.0f);
+    p.set(ParamId::ExpThresholdMode, static_cast<float>(core::ThresholdMode::SpeechRelative));
+    p.set(ParamId::ExpRelativeThresholdDb, -16.0f);
+    p.set(ParamId::ExpLookaheadMs, 3.0f);
+    p.set(ParamId::ExpTransientRejectMs, 8.0f);
+    e.setParameters(p);
+    CHECK(e.latencyFrames() == 384);
+    CHECK(e.expander().effectiveThresholdDb() == doctest::Approx(-48.0)); // nothing measured yet
+    e.setSpeechLevelDb(-22.0);
+    CHECK(e.expander().effectiveThresholdDb() == doctest::Approx(-38.0));
+    // Survives parameter updates and a re-prepare.
+    p.set(ParamId::ExpRatio, 3.0f);
+    e.setParameters(p);
+    CHECK(e.expander().effectiveThresholdDb() == doctest::Approx(-38.0));
+    e.prepare(cfg);
+    CHECK(e.expander().effectiveThresholdDb() == doctest::Approx(-38.0));
+    CHECK(e.speechLevelDb() == doctest::Approx(-22.0));
+    // Bypass stays sample-exact with the combined delay in place.
+    p.set(ParamId::Bypass, 1.0f);
+    e.setParameters(p);
+    core::AudioBuffer in(1, 4800);
+    for (std::size_t i = 0; i < in.numFrames(); ++i)
+        in.channel(0)[i] = static_cast<float>(std::sin(0.05 * static_cast<double>(i)));
+    core::AudioBuffer out(in);
+    test::processInBlocks(out, 256, [&](core::AudioView v) { e.process(v); });
+    CHECK(test::maxAbsDiff(in, out, 384) == 0.0f);
+}

@@ -6,6 +6,7 @@
 #   * No #ifdef _WIN32 / __APPLE__ - the engine is identical on every platform.
 
 add_library(radiff_core STATIC
+    src/Analysis.cpp
     src/Engine.cpp
     src/Parameters.cpp
     src/modules/InputStage.cpp

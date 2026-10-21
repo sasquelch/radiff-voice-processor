@@ -3,7 +3,8 @@
 //   RaDiffVoiceCLI --input <in.wav> --output <out.wav> [--preset <file.radvoice.json>]
 //                  [--set module.key=value ...] [--format pcm16|pcm24|pcm32|float32]
 //                  [--bit-depth 16|24|32|float] [--overwrite] [--block <frames>]
-//                  [--json-result] [--verbose] [--quiet] [--list-params] [--version] [--help]
+//                  [--analyze-only] [--json-result] [--verbose] [--quiet] [--list-params]
+//                  [--version] [--help]
 //
 // Exit codes: see radiff/app/ExitCodes.h (0 success, 2 usage, 3 input, 4 preset,
 // 5 processing, 6 output I/O, 7 validation, 8 cancelled, 70 internal).
@@ -47,6 +48,8 @@ void printUsage(std::FILE* to) {
         "  --bit-depth <n>       Same as --format: 16, 24, 32 (integer) or float\n"
         "  --overwrite           Allow replacing an existing output file (never the input)\n"
         "  --block <frames>      Processing block size, 1..65536 (default 512; does not affect output)\n"
+        "  --analyze-only        Measure the input (speech level, noise floor, peak, resolved expander\n"
+        "                        threshold) and write nothing; --output is optional\n"
         "  --json-result         Print a machine-readable JSON result object on stdout\n"
         "  --verbose             Print latency, meters and timing\n"
         "  --quiet               Only print errors\n"
@@ -106,12 +109,26 @@ int emit(const Options& o, ExitCode code, const std::string& msg, const radiff::
         j["input"] = radiff::platform::pathToUtf8(o.job.input);
         j["output"] = radiff::platform::pathToUtf8(o.job.output);
         if (report) {
+            j["analyzeOnly"] = o.job.analyzeOnly;
             j["frames"] = report->framesProcessed;
             j["sampleRate"] = report->inputInfo.sampleRate;
             j["channels"] = report->inputInfo.numChannels;
             j["latencyFramesCompensated"] = report->latencyFrames;
             j["inputPeakDbfs"] = report->peakIn > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakIn)) : -144.0;
-            j["outputPeakDbfs"] = report->peakOut > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakOut)) : -144.0;
+            if (!o.job.analyzeOnly)
+                j["outputPeakDbfs"] = report->peakOut > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakOut)) : -144.0;
+            if (report->inputInfo.numFrames > 0) {
+                nlohmann::ordered_json a;
+                a["durationSeconds"] = report->analysis.durationSeconds;
+                a["hasSignal"] = report->analysis.hasSignal;
+                a["peakDbfs"] = report->analysis.peakDbfs;
+                a["speechLevelDbfs"] = report->analysis.speechLevelDbfs;
+                a["noiseFloorDbfs"] = report->analysis.noiseFloorDbfs;
+                a["activeSeconds"] = report->analysis.activeSeconds;
+                a["expanderThresholdDbfs"] = report->expanderThresholdDbfs;
+                a["expanderThresholdMode"] = report->expanderThresholdIsRelative ? "speechRelative" : "absolute";
+                j["analysis"] = a;
+            }
         }
         j["seconds"] = seconds;
         std::printf("%s\n", j.dump().c_str());
@@ -119,11 +136,21 @@ int emit(const Options& o, ExitCode code, const std::string& msg, const radiff::
     if (code != ExitCode::Success) {
         std::fprintf(stderr, "error: %s\n", msg.c_str());
     } else if (!o.quiet && !o.jsonResult) {
-        std::printf("%s -> %s: %s (in %.1f dBFS, out %.1f dBFS)\n", radiff::platform::pathToUtf8(o.job.input).c_str(),
-                    radiff::platform::pathToUtf8(o.job.output).c_str(), msg.c_str(),
-                    report && report->peakIn > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakIn)) : -144.0,
-                    report && report->peakOut > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakOut)) : -144.0);
-        if (o.verbose && report)
+        if (o.job.analyzeOnly)
+            std::printf("%s: %s\n", radiff::platform::pathToUtf8(o.job.input).c_str(), msg.c_str());
+        else
+            std::printf("%s -> %s: %s (in %.1f dBFS, out %.1f dBFS)\n", radiff::platform::pathToUtf8(o.job.input).c_str(),
+                        radiff::platform::pathToUtf8(o.job.output).c_str(), msg.c_str(),
+                        report && report->peakIn > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakIn)) : -144.0,
+                        report && report->peakOut > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakOut)) : -144.0);
+        if ((o.verbose || o.job.analyzeOnly) && report) {
+            const auto& a = report->analysis;
+            std::printf("analysis: %.1f s, peak %.1f dBFS, speech level %.1f dBFS, noise floor %.1f dBFS, active %.1f s\n",
+                        a.durationSeconds, a.peakDbfs, a.speechLevelDbfs, a.noiseFloorDbfs, a.activeSeconds);
+            std::printf("expander threshold: %.1f dBFS (%s)\n", report->expanderThresholdDbfs,
+                        report->expanderThresholdIsRelative ? "speech-relative" : "absolute");
+        }
+        if (o.verbose && report && !o.job.analyzeOnly)
             std::printf("latency compensated: %zu frames; elapsed %.3f s (%.0fx real time)\n", report->latencyFrames,
                         seconds,
                         seconds > 0.0 ? (static_cast<double>(report->framesProcessed) / report->inputInfo.sampleRate) / seconds : 0.0);
@@ -155,6 +182,7 @@ int run(const std::vector<std::string>& args) {
         if (a == "--verbose") { o.verbose = true; continue; }
         if (a == "--json-result") { o.jsonResult = true; continue; }
         if (a == "--overwrite") { o.job.overwrite = true; continue; }
+        if (a == "--analyze-only") { o.job.analyzeOnly = true; continue; }
         if (a == "--input") { auto v = need(i, a); if (!v) return 2; o.job.input = radiff::platform::pathFromUtf8(*v); ++i; continue; }
         if (a == "--output") { auto v = need(i, a); if (!v) return 2; o.job.output = radiff::platform::pathFromUtf8(*v); ++i; continue; }
         if (a == "--preset") { auto v = need(i, a); if (!v) return 2; o.presetPath = *v; ++i; continue; }
@@ -183,8 +211,8 @@ int run(const std::vector<std::string>& args) {
         return 2;
     }
 
-    if (o.job.input.empty() || o.job.output.empty()) {
-        std::fputs("error: --input and --output are required\n\n", stderr);
+    if (o.job.input.empty() || (o.job.output.empty() && !o.job.analyzeOnly)) {
+        std::fputs("error: --input and --output are required (--output optional with --analyze-only)\n\n", stderr);
         printUsage(stderr);
         return 2;
     }

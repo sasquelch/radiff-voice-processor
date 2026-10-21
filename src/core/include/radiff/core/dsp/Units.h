@@ -11,6 +11,7 @@ constexpr double kTinyPower = 1e-20; // -200 dB
 
 [[nodiscard]] inline double dbToGain(double db) noexcept { return std::pow(10.0, db * 0.05); }
 [[nodiscard]] inline float dbToGain(float db) noexcept { return std::pow(10.0f, db * 0.05f); }
+[[nodiscard]] inline double dbToPower(double db) noexcept { return std::pow(10.0, db * 0.1); }
 
 [[nodiscard]] inline double gainToDb(double gain) noexcept {
     return gain > 1e-10 ? 20.0 * std::log10(gain) : kMinusInfDb;

@@ -40,14 +40,16 @@ FileJobReport processFile(const FileJob& job, const ProgressFn& progress) {
         std::error_code ec;
         if (job.input.empty())
             return fail(ExitCode::UsageError, "No input file specified");
-        if (job.output.empty())
+        if (job.output.empty() && !job.analyzeOnly)
             return fail(ExitCode::UsageError, "No output file specified");
         if (!std::filesystem::exists(job.input, ec))
             return fail(ExitCode::InputError, "Input file does not exist: " + platform::pathToUtf8(job.input));
-        if (std::filesystem::equivalent(job.input, job.output, ec))
-            return fail(ExitCode::UsageError, "Input and output must be different files");
-        if (!job.overwrite && std::filesystem::exists(job.output, ec))
-            return fail(ExitCode::OutputError, "Output file already exists: " + platform::pathToUtf8(job.output));
+        if (!job.analyzeOnly) {
+            if (std::filesystem::equivalent(job.input, job.output, ec))
+                return fail(ExitCode::UsageError, "Input and output must be different files");
+            if (!job.overwrite && std::filesystem::exists(job.output, ec))
+                return fail(ExitCode::OutputError, "Output file already exists: " + platform::pathToUtf8(job.output));
+        }
         if (job.blockFrames == 0)
             return fail(ExitCode::UsageError, "Block size must be greater than zero");
 
@@ -70,12 +72,53 @@ FileJobReport processFile(const FileJob& job, const ProgressFn& progress) {
         cfg.sampleRate = report.inputInfo.sampleRate;
         cfg.maxBlockFrames = job.blockFrames;
         cfg.numChannels = audio.numChannels();
+        const std::size_t total = audio.numFrames();
+
+        // Analysis pass: level statistics of what the expander detector will see (input stage
+        // and EQ applied, dynamics off). Drives the speechRelative threshold mode and the report.
+        {
+            core::ParameterSet measure = job.parameters;
+            measure.set(core::ParamId::Bypass, 0.0f);
+            measure.set(core::ParamId::ExpEnabled, 0.0f);
+            measure.set(core::ParamId::ExpLookaheadMs, 0.0f);
+            measure.set(core::ParamId::ExpTransientRejectMs, 0.0f);
+            measure.set(core::ParamId::Comp1Enabled, 0.0f);
+            measure.set(core::ParamId::Comp2Enabled, 0.0f);
+            measure.set(core::ParamId::OutputGainDb, 0.0f);
+            core::AudioBuffer copy(audio);
+            engine.prepare(cfg);
+            engine.setParameters(measure);
+            core::LevelAnalyzer analyzer;
+            analyzer.prepare(cfg.sampleRate, cfg.numChannels);
+            for (std::size_t pos = 0; pos < total; pos += job.blockFrames) {
+                const std::size_t n = std::min(job.blockFrames, total - pos);
+                auto v = copy.view(pos, n);
+                engine.process(v);
+                analyzer.process(core::ConstAudioView{v.channels, v.numChannels, v.numFrames});
+            }
+            report.analysis = analyzer.result();
+            engine.release();
+        }
+
         engine.prepare(cfg);
         engine.setParameters(job.parameters);
+        if (report.analysis.hasSignal)
+            engine.setSpeechLevelDb(report.analysis.speechLevelDbfs);
+        report.expanderThresholdDbfs = engine.expander().effectiveThresholdDb();
+        report.expanderThresholdIsRelative =
+            job.parameters.getInt(core::ParamId::ExpThresholdMode) == static_cast<int>(core::ThresholdMode::SpeechRelative) &&
+            report.analysis.hasSignal;
         const std::size_t latency = engine.latencyFrames();
         report.latencyFrames = latency;
+        report.peakIn = inputPeak;
 
-        const std::size_t total = audio.numFrames();
+        if (job.analyzeOnly) {
+            engine.release();
+            report.message = "Analyzed " + std::to_string(total) + " frames, " + std::to_string(audio.numChannels()) +
+                             " ch @ " + std::to_string(static_cast<long long>(cfg.sampleRate)) + " Hz";
+            return report;
+        }
+
         for (std::size_t pos = 0; pos < total; pos += job.blockFrames) {
             const std::size_t n = std::min(job.blockFrames, total - pos);
             engine.process(audio.view(pos, n));

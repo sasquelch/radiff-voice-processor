@@ -21,10 +21,15 @@ enum class ParamUnit { None, Decibels, Hertz, Milliseconds, Ratio, Q, Fraction, 
 
 inline constexpr std::array<std::string_view, 5> kEqTypeNames{"bell", "lowShelf", "highShelf", "highPass", "lowPass"};
 inline constexpr std::array<std::string_view, 2> kDetectorNames{"rms", "peak"};
+inline constexpr std::array<std::string_view, 2> kThresholdModeNames{"absolute", "speechRelative"};
 inline constexpr std::array<std::string_view, 0> kNoEnum{};
 
 enum class EqBandType : int { Bell = 0, LowShelf, HighShelf, HighPass, LowPass };
 enum class DetectorType : int { Rms = 0, Peak };
+/// Expander threshold mode. `SpeechRelative` places the threshold `relativeThresholdDb` below the
+/// measured speech level of the material (supplied by the host via Engine::setSpeechLevelDb,
+/// e.g. from an offline analysis pass); without a measurement it falls back to the absolute value.
+enum class ThresholdMode : int { Absolute = 0, SpeechRelative };
 
 // ---------------------------------------------------------------------------
 // The parameter list. X(Id, Module, BandIndex, jsonKey, displayName, unit, min, max, default, step, enumNames)
@@ -87,7 +92,11 @@ enum class DetectorType : int { Rms = 0, Peak };
     X(ExpStereoLink, Expander, -1, "stereoLink", "Exp Stereo Link", Boolean, 0, 1, 1, 1, kNoEnum)                      \
     RADIFF_COMPRESSOR(X, Comp1, Compressor1, "Comp 1", 1, -24, 2.5, 6, 10, 150, 0, 10)                                  \
     RADIFF_COMPRESSOR(X, Comp2, Compressor2, "Comp 2", 0, -18, 4, 3, 3, 80, 1, 5)                                       \
-    X(OutputGainDb, Output, -1, "gainDb", "Output Gain", Decibels, -24, 24, 0, 0, kNoEnum)
+    X(OutputGainDb, Output, -1, "gainDb", "Output Gain", Decibels, -24, 24, 0, 0, kNoEnum)                              \
+    /* --- appended after v0.1.0 (append-only: enum index is the stable ID) --- */                                      \
+    X(ExpThresholdMode, Expander, -1, "thresholdMode", "Exp Threshold Mode", Enum, 0, 1, 0, 1, kThresholdModeNames)     \
+    X(ExpRelativeThresholdDb, Expander, -1, "relativeThresholdDb", "Exp Relative Threshold", Decibels, -40, 0, -15, 0, kNoEnum) \
+    X(ExpTransientRejectMs, Expander, -1, "transientRejectMs", "Exp Transient Reject", Milliseconds, 0, 20, 0, 0, kNoEnum)
 
 enum class ParamId : std::size_t {
 #define RADIFF_PARAM_ENUM(Id, ...) Id,

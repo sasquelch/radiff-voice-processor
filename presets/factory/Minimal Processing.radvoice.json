@@ -3,7 +3,7 @@
   "engineVersion": "0.1.0",
   "algorithmVersion": 1,
   "name": "Minimal Processing",
-  "description": "Only a 60 Hz rumble filter and a very gentle 1.5:1 safety leveler; no expansion. Original RaDiff starting point (algorithm v1). Not yet approved by listening tests; adjust the expander threshold to each recording's real noise floor.",
+  "description": "HPF, DC block and very light 1.5:1 leveling only; expander and second compressor off. Reference point for A/B listening. Original RaDiff (algorithm v1).",
   "author": "RaDiff",
   "signalOrder": [
     "input",
@@ -80,7 +80,10 @@
       "lookaheadMs": 0.0,
       "maxAttenuationDb": 10.0,
       "wet": 1.0,
-      "stereoLink": true
+      "stereoLink": true,
+      "thresholdMode": "absolute",
+      "relativeThresholdDb": -15.0,
+      "transientRejectMs": 0.0
     },
     "compressor1": {
       "enabled": true,

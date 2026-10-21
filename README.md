@@ -58,7 +58,9 @@ Exit codes: `0` verified success, `2` usage, `3` input, `4` preset, `5` processi
 `7` validation, `8` cancelled, `70` internal. `--overwrite` is required to replace an existing
 output; the input is never overwritten. `--set expander.thresholdDbfs=-44` overrides any
 parameter after the preset (`--list-params` prints them all); `--json-result` prints a
-machine-readable summary.
+machine-readable summary; `--analyze-only` measures a file (speech level, noise floor, peak,
+resolved expander threshold) without writing anything. Factory presets place the expander
+threshold relative to the speech level the analysis pass measures in each file.
 Output files are written to a hidden temporary file beside the destination, flushed to disk,
 re-opened and validated, then atomically renamed into place. A failed run never leaves a
 partial or missing deliverable.

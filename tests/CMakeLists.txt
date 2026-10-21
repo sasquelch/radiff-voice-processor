@@ -21,7 +21,8 @@ radiff_add_test(test_core
     core/test_input_stage.cpp
     core/test_eq.cpp
     core/test_expander.cpp
-    core/test_compressor.cpp)
+    core/test_compressor.cpp
+    core/test_analysis.cpp)
 target_link_libraries(test_core PRIVATE radiff::core)
 target_include_directories(test_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/core)
 

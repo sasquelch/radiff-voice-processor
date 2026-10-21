@@ -140,3 +140,35 @@ TEST_CASE("silent input is fine; silent output from real input is a validation e
     job.parameters.set(ParamId::OutputGainDb, -24.0f);
     CHECK(app::processFile(job).exitCode == app::ExitCode::Success);
 }
+
+TEST_CASE("analyze-only measures the input, resolves the relative threshold and writes nothing") {
+    app::FileJob job;
+    job.input = makeInput("in_analyze.wav", 1, 48000.0, 96000, 0.5f); // sine, RMS -9.03 dBFS
+    job.analyzeOnly = true; // no output path at all
+    job.parameters = allOff();
+    job.parameters.set(ParamId::ExpThresholdMode, static_cast<float>(core::ThresholdMode::SpeechRelative));
+    job.parameters.set(ParamId::ExpRelativeThresholdDb, -15.0f);
+    const auto r = app::processFile(job);
+    REQUIRE_MESSAGE(r.exitCode == app::ExitCode::Success, r.message);
+    CHECK(r.analysis.hasSignal);
+    CHECK(r.analysis.durationSeconds == doctest::Approx(2.0));
+    CHECK(r.analysis.speechLevelDbfs == doctest::Approx(-9.03).epsilon(0.02));
+    CHECK(r.analysis.peakDbfs == doctest::Approx(-6.02).epsilon(0.01));
+    CHECK(r.expanderThresholdIsRelative);
+    CHECK(r.expanderThresholdDbfs == doctest::Approx(-24.03).epsilon(0.01));
+    CHECK(r.peakIn == doctest::Approx(0.5f).epsilon(0.01));
+    CHECK(r.framesProcessed == 0);
+    CHECK(r.peakOut == 0.0f);
+
+    // Absolute mode reports the preset threshold untouched.
+    job.parameters.set(ParamId::ExpThresholdMode, static_cast<float>(core::ThresholdMode::Absolute));
+    job.parameters.set(ParamId::ExpThresholdDbfs, -41.0f);
+    const auto r2 = app::processFile(job);
+    REQUIRE(r2.exitCode == app::ExitCode::Success);
+    CHECK_FALSE(r2.expanderThresholdIsRelative);
+    CHECK(r2.expanderThresholdDbfs == doctest::Approx(-41.0));
+
+    // A normal job also carries the analysis and still refuses a missing output.
+    job.analyzeOnly = false;
+    CHECK(app::processFile(job).exitCode == app::ExitCode::UsageError);
+}

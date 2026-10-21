@@ -12,6 +12,7 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 namespace radiff::core {
@@ -67,6 +68,12 @@ public:
     void setParameters(const ParameterSet& params) noexcept;
     [[nodiscard]] const ParameterSet& parameters() const noexcept { return params_; }
 
+    /// Measured speech level of the material (dBFS, detector domain; see core::LevelAnalyzer),
+    /// used by the expander's speechRelative threshold mode. nullopt = unknown. Not part of the
+    /// preset (it describes the recording, not the sound). Realtime-safe.
+    void setSpeechLevelDb(std::optional<double> levelDb) noexcept;
+    [[nodiscard]] std::optional<double> speechLevelDb() const noexcept { return speechLevelDb_; }
+
     /// Processes `numFrames` frames in place. `numFrames` must be <= maxBlockFrames and
     /// `audio.numChannels` must equal the prepared channel count.
     void process(AudioView audio) noexcept;
@@ -88,6 +95,7 @@ private:
     bool prepared_ = false;
     bool paramsDirty_ = true;
     bool hasProcessed_ = false; ///< false until the first block after prepare()/reset()
+    std::optional<double> speechLevelDb_;
     std::size_t latency_ = 0;
 
     modules::InputStage input_;

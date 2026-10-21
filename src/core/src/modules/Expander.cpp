@@ -10,12 +10,18 @@ void Expander::prepare(double sampleRate, std::size_t numChannels) {
     sampleRate_ = sampleRate;
     numChannels_ = std::min(numChannels, kMaxChannels);
     const std::size_t maxDelay = dsp::msToSamples(kMaxLookaheadMs, sampleRate) + 1;
+    freezeSamples_ = dsp::msToSamples(kFreezeMs, sampleRate);
+    trackCoef_ = 1.0 - dsp::timeConstantCoefficient(kTrackMs, sampleRate);
     for (auto& s : ch_) {
         s.detector.prepare(sampleRate);
+        s.fastDetector.prepare(sampleRate);
+        s.fastDetector.setMode(dsp::LevelDetector::Mode::Rms);
+        s.fastDetector.setWindow(kFastWindowMs);
         s.scHp.prepare(sampleRate);
         s.scLp.prepare(sampleRate);
         s.ballistics.prepare(sampleRate);
         s.delay.prepare(maxDelay);
+        s.aboveRing.assign(maxDelay, 0);
     }
     wet_.prepare(sampleRate, 10.0);
     firstUpdate_ = true;
@@ -25,26 +31,63 @@ void Expander::prepare(double sampleRate, std::size_t numChannels) {
 void Expander::reset() noexcept {
     for (auto& s : ch_) {
         s.detector.reset();
+        s.fastDetector.reset();
         s.scHp.reset();
         s.scLp.reset();
         s.ballistics.reset();
         s.delay.reset();
         s.open = true;
         s.holdRemaining = 0;
+        s.openSamples = 0;
+        std::fill(s.aboveRing.begin(), s.aboveRing.end(), std::uint8_t{0});
+        s.ringPos = 0;
+        s.aboveCount = 0;
+        s.lastAbove = false;
+        s.freezeRemaining = 0;
+        s.closedLevelDb = -144.0;
     }
     wet_.reset(wet_.target());
     lastGrDb_ = 0.0f;
 }
 
+void Expander::setSpeechLevelDb(std::optional<double> levelDb) noexcept {
+    speechLevelDb_ = levelDb;
+    resolveThreshold();
+}
+
+void Expander::resolveThreshold() noexcept {
+    if (thresholdMode_ == ThresholdMode::SpeechRelative && speechLevelDb_.has_value())
+        thresholdDb_ = std::clamp(*speechLevelDb_ + relativeThresholdDb_, -80.0, 0.0);
+    else
+        thresholdDb_ = absoluteThresholdDb_;
+}
+
 void Expander::update(const ParameterSet& p) noexcept {
     enabled_ = p.getBool(ParamId::ExpEnabled);
-    thresholdDb_ = static_cast<double>(p.get(ParamId::ExpThresholdDbfs));
+    absoluteThresholdDb_ = static_cast<double>(p.get(ParamId::ExpThresholdDbfs));
+    relativeThresholdDb_ = static_cast<double>(p.get(ParamId::ExpRelativeThresholdDb));
+    thresholdMode_ = p.getInt(ParamId::ExpThresholdMode) == static_cast<int>(ThresholdMode::SpeechRelative)
+                         ? ThresholdMode::SpeechRelative
+                         : ThresholdMode::Absolute;
+    resolveThreshold();
     ratio_ = static_cast<double>(p.get(ParamId::ExpRatio));
     kneeDb_ = static_cast<double>(p.get(ParamId::ExpKneeDb));
     hysteresisDb_ = static_cast<double>(p.get(ParamId::ExpHysteresisDb));
     maxAttenDb_ = static_cast<double>(p.get(ParamId::ExpMaxAttenuationDb));
     holdSamples_ = dsp::msToSamples(static_cast<double>(p.get(ParamId::ExpHoldMs)), sampleRate_);
     lookaheadSamples_ = dsp::msToSamples(static_cast<double>(p.get(ParamId::ExpLookaheadMs)), sampleRate_);
+    const std::size_t reject = dsp::msToSamples(static_cast<double>(p.get(ParamId::ExpTransientRejectMs)), sampleRate_);
+    if (reject != rejectSamples_) {
+        rejectSamples_ = std::min(reject, ch_[0].aboveRing.size());
+        verifySamples_ = std::max<std::size_t>(1, (rejectSamples_ * 2 + 2) / 3); // two thirds, rounded up
+        for (auto& s : ch_) { // window length changed: restart the verification history
+            std::fill(s.aboveRing.begin(), s.aboveRing.end(), std::uint8_t{0});
+            s.ringPos = 0;
+            s.aboveCount = 0;
+            s.lastAbove = false;
+        }
+    }
+    delaySamples_ = std::max(lookaheadSamples_, rejectSamples_);
     link_ = p.getBool(ParamId::ExpStereoLink);
     scHpOn_ = p.getBool(ParamId::ExpSidechainHighPassEnabled);
     scLpOn_ = p.getBool(ParamId::ExpSidechainLowPassEnabled);
@@ -62,7 +105,7 @@ void Expander::update(const ParameterSet& p) noexcept {
                               static_cast<double>(p.get(ParamId::ExpReleaseMs)));
         s.scHp.setCoefficients(hp, firstUpdate_);
         s.scLp.setCoefficients(lp, firstUpdate_);
-        s.delay.setDelay(lookaheadSamples_);
+        s.delay.setDelay(delaySamples_);
     }
     if (firstUpdate_) {
         wet_.reset(wet_.target());
@@ -74,16 +117,76 @@ double Expander::staticGainDb(double levelDb) const noexcept {
     return dsp::expanderGainDb(levelDb, thresholdDb_, ratio_, kneeDb_, maxAttenDb_);
 }
 
-inline double Expander::targetGainFor(ChannelState& s, double levelDb) noexcept {
-    // State machine: opens when the level reaches the threshold, closes only once the level
-    // has fallen below (threshold - hysteresis). While open, the static curve is evaluated
-    // with the threshold shifted down by the hysteresis, so the gain stays near unity until
-    // the close point; the soft knee therefore remains continuous when hysteresis is zero.
-    if (levelDb >= thresholdDb_) {
-        s.open = true;
-        s.holdRemaining = holdSamples_;
-    } else if (levelDb < thresholdDb_ - hysteresisDb_) {
-        s.open = false;
+inline double Expander::targetGainFor(ChannelState& s, double levelDb, double fastDb) noexcept {
+    // State machine. Open -> closed once the level has fallen below (threshold - hysteresis).
+    // Closed -> open when the level reaches the threshold; with transient rejection the fast
+    // detector must have been there for two thirds of the last `rejectSamples_` first. While open,
+    // the static curve is evaluated with the threshold shifted down by the hysteresis, so the
+    // gain stays near unity until the close point; the soft knee therefore remains continuous
+    // when hysteresis is zero.
+    if (s.open) {
+        ++s.openSamples;
+        if (levelDb >= thresholdDb_) {
+            s.holdRemaining = holdSamples_;
+        } else if (levelDb < thresholdDb_ - hysteresisDb_) {
+            s.open = false;
+            if (rejectSamples_ > 0 && s.openSamples <= rejectSamples_) {
+                // Open for no longer than the verification window: that was a transient after
+                // all. Keep the pre-burst level and let it ring down like a rejected burst.
+                s.freezeRemaining = freezeSamples_;
+            } else {
+                s.freezeRemaining = 0;
+                s.closedLevelDb = levelDb;
+            }
+        }
+    }
+    bool burst = false;
+    if (!s.open) {
+        if (rejectSamples_ == 0) {
+            if (levelDb >= thresholdDb_) {
+                s.open = true;
+                s.openSamples = 0;
+                s.holdRemaining = holdSamples_;
+            }
+        } else {
+            // Flag with a little hysteresis so low-frequency ripple on the fast detector does
+            // not fragment a genuine onset.
+            const bool above = fastDb >= thresholdDb_ || (s.lastAbove && fastDb >= thresholdDb_ - kVerifyHysteresisDb);
+            s.lastAbove = above;
+            s.aboveCount += static_cast<std::size_t>(above) - s.aboveRing[s.ringPos];
+            s.aboveRing[s.ringPos] = static_cast<std::uint8_t>(above);
+            if (++s.ringPos >= rejectSamples_)
+                s.ringPos = 0;
+            if (s.aboveCount >= verifySamples_ && levelDb >= thresholdDb_) { // verified onset
+                s.open = true;
+                s.openSamples = 0;
+                s.holdRemaining = holdSamples_;
+                s.aboveCount = 0;
+                std::fill_n(s.aboveRing.begin(), rejectSamples_, std::uint8_t{0});
+                s.ringPos = 0;
+                s.lastAbove = false;
+            } else if (s.aboveCount > 0) {
+                burst = true; // an unverified burst is in (or has just left) the window
+                s.freezeRemaining = freezeSamples_;
+            } else {
+                if (s.freezeRemaining > 0) {
+                    // Keep the pre-burst level until the main detector has rung down to it.
+                    if (levelDb <= s.closedLevelDb + 3.0)
+                        s.freezeRemaining = 0;
+                    else
+                        --s.freezeRemaining;
+                }
+                if (s.freezeRemaining == 0) {
+                    // Pre-burst level tracker: follows the level down instantly but up only
+                    // slowly (20 ms), so the first samples of a burst cannot drag it above the
+                    // threshold.
+                    if (levelDb < s.closedLevelDb)
+                        s.closedLevelDb = levelDb;
+                    else
+                        s.closedLevelDb += trackCoef_ * (levelDb - s.closedLevelDb);
+                }
+            }
+        }
     }
     if (s.open)
         return dsp::expanderGainDb(levelDb, thresholdDb_ - hysteresisDb_, ratio_, kneeDb_, maxAttenDb_);
@@ -91,17 +194,21 @@ inline double Expander::targetGainFor(ChannelState& s, double levelDb) noexcept 
         --s.holdRemaining; // hold: stay fully open after speech stops
         return 0.0;
     }
-    return dsp::expanderGainDb(levelDb, thresholdDb_, ratio_, kneeDb_, maxAttenDb_);
+    // Closed. During an unverified burst (and while it rings through the detector) the
+    // attenuation of the preceding level is kept instead of letting the curve return to unity.
+    const double l = (burst || s.freezeRemaining > 0) ? s.closedLevelDb : levelDb;
+    return dsp::expanderGainDb(l, thresholdDb_, ratio_, kneeDb_, maxAttenDb_);
 }
 
 void Expander::process(AudioView audio) noexcept {
     const std::size_t nch = std::min(audio.numChannels, numChannels_);
     float maxGr = 0.0f;
-    std::array<double, kMaxChannels> level{};
+    std::array<double, kMaxChannels> level{}, fast{};
+    const bool verify = rejectSamples_ > 0;
 
     for (std::size_t i = 0; i < audio.numFrames; ++i) {
         const double wet = wet_.next();
-        // 1. Detector on the undelayed input.
+        // 1. Detectors on the undelayed input.
         for (std::size_t c = 0; c < nch; ++c) {
             double d = static_cast<double>(audio.channels[c][i]);
             if (scHpOn_)
@@ -109,6 +216,7 @@ void Expander::process(AudioView audio) noexcept {
             if (scLpOn_)
                 d = ch_[c].scLp.processSample(d);
             level[c] = ch_[c].detector.processSample(d);
+            fast[c] = verify ? ch_[c].fastDetector.processSample(d) : level[c];
         }
         // 2. Gain computation (linked: one state machine on the louder channel).
         std::array<double, kMaxChannels> gainDb{};
@@ -117,12 +225,13 @@ void Expander::process(AudioView audio) noexcept {
                 gainDb[c] = ch_[c].ballistics.towardsExpander(0.0);
         } else if (link_ && nch > 1) {
             const double l = std::max(level[0], level[1]);
-            const double target = targetGainFor(ch_[0], l);
+            const double f = std::max(fast[0], fast[1]);
+            const double target = targetGainFor(ch_[0], l, f);
             const double g = ch_[0].ballistics.towardsExpander(target);
             gainDb[0] = gainDb[1] = g;
         } else {
             for (std::size_t c = 0; c < nch; ++c)
-                gainDb[c] = ch_[c].ballistics.towardsExpander(targetGainFor(ch_[c], level[c]));
+                gainDb[c] = ch_[c].ballistics.towardsExpander(targetGainFor(ch_[c], level[c], fast[c]));
         }
         // 3. Apply to the delayed audio, then wet/dry.
         for (std::size_t c = 0; c < nch; ++c) {

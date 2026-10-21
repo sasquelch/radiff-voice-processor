@@ -4,6 +4,60 @@ Only results that were actually executed are recorded here, with the environment
 Environment for all entries unless stated: Apple M1 Max, macOS 27.0.1, Xcode 27.1
 (Apple clang 21.0.0), CMake 4.4.3, Ninja 1.13.2, repository commit as of the entry date.
 
+## 2026-10-21 — Listening round 1: "mouse clicks and heavy breathing in all samples"
+
+**Finding (owner, by ear, on the Phase 2 renders):** mouse clicks and breaths audible in every
+processed file. **Measured cause** (10 ms RMS frames, ffmpeg decode, numpy):
+
+| File | Speech RMS (p90) | Breath/room band | Expander threshold used | Effect of Phase 2 "Balanced" on the band |
+|---|---|---|---|---|
+| 1012am (mono, close mic) | −26.5 dBFS | −47 dBFS | −48 dBFS | −0.1 dB (nothing) |
+| TOM0010669 (stereo, hot) | −7 dBFS | −28 dBFS | −48 dBFS | breaths 2 dB **louder** relative to speech (compressor) |
+
+Breaths sit ≈ 21 dB under speech in both recordings, far above the spec's −48 dBFS starting
+threshold, so the expander never engaged. Clicks measured with a 2 ms RMS detector: peaks
+−26…−38 dBFS, 1–4 ms above a speech-relative threshold; the clicks in 1012am occur 50–100 ms
+after a word, i.e. inside the 120 ms hold, so the Phase 2 gate was open when they happened.
+
+**Changes made:** speech-relative threshold mode + analysis pass, transient rejection, shorter
+hold/release and larger caps in the factory presets (see DSP_DESIGN.md). New automated tests:
+analyzer (5 cases), relative threshold, click rejection, plosive preservation, engine latency /
+bypass with the combined delay, file-processor and CLI `--analyze-only`.
+
+**Measured result on the same files** (change vs. raw; "floor" = 10th percentile of 10 ms
+frames, "breath band" = frames between floor+6 dB and speech−18 dB, clicks = peak in ±2 ms):
+
+| Render | 1012am floor | 1012am breath band | 1012am clicks (2) | TOM floor | TOM breath band | TOM clicks (5) |
+|---|---|---|---|---|---|---|
+| Phase 2 Balanced | −0.3 dB | −0.1 dB | +0.3 / −0.1 dB | −2.6 dB | −4.0 dB | 0 … −2.5 dB |
+| B2-gentle (Talk Radio tier) | −3.3 | −0.9 | +0.3 / −1.3 | −5.6 | −5.2 | −11…−12 |
+| B2-medium (Balanced tier) | −8.8 | −2.2 | −3.7 / −6.3 | −13.1 | −6.4 | −20 |
+| B2-strong (Noisy Room tier) | −19.1 | −11.8 | −13.3 / −17.2 | −23.7 | −11.3 | −30 |
+
+Reading: in TOM every click is in a pause with the gate closed, so each tier attenuates them by
+exactly its cap. In 1012am the two clicks follow words closely; only the strong tier (30 ms
+hold, 50 ms release) closes fast enough to take 13–17 dB off them. Breaths in 1012am are only
+4–6 dB under the medium tier's close point, so medium takes 2 dB off them and strong 12 dB; the
+price of "strong" is that word tails 20–25 dB under the speech level are attenuated too
+(capped at 30 dB). **This trade-off needs the owner's ears**, which is why three tiers were
+rendered: `~/Desktop/RaDiff-Listening/B2-{gentle,medium,strong}-*.wav` against `A-raw-*.wav`
+(Phase 2 renders moved to `old-phase2/`). Speech level (p90) is unchanged between tiers
+(−0.5 dB on 1012am, −7.8 dB on TOM from compression), so the A/B is loudness-comparable per file.
+
+Analysis pass on the three raw files (`RaDiffVoiceCLI --analyze-only`): speech level
+−28.9 / −12.7 / −18.6 dBFS, noise floor −61.1 / −49.6 / −35.4 dBFS, resolved Balanced
+threshold −40.9 / −24.7 / −30.6 dBFS (1012am / TOM / vikings). Release CLI speed with the
+analysis pass: 46 s file in 0.32 s (144× real time; was 283× with a single pass). vikings is an already
+processed broadcast file (15 dB dynamic range) and has no detectable breaths or clicks.
+
+### Automated suites after the change
+
+| Preset | Result |
+|---|---|
+| `mac-debug` | 33/33 CTest tests passed; `test_core` 59 cases / 4695 assertions |
+| `mac-asan` (ASan + UBSan) | 33/33 passed, no sanitizer reports |
+| `mac-universal-release` | 33/33 passed (arm64 slice executed; x86_64 slice built, not executed) |
+
 ## 2026-10-21 — Phase 2 (real DSP engine)
 
 ### Automated suites
@@ -66,8 +120,7 @@ build ≈ 70× real time.
 
 ### Listening tests
 
-**Not performed yet.** The A/B material above is prepared for a human listening session
-(loudness-match before comparing). No factory preset is approved; descriptions say so.
+See the round-1 section below. No factory preset is approved yet; descriptions say so.
 
 ### Not verified (and therefore not claimed)
 

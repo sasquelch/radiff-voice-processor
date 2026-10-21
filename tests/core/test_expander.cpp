@@ -236,3 +236,128 @@ TEST_CASE("peak detector mode behaves like RMS on steady tones (within calibrati
     // Peak level of a -40 dBFS RMS sine is -37 dBFS: 7 dB under -> 7 dB more under.
     CHECK(steady(p, -40.0) == doctest::Approx(-47.0).epsilon(0.02));
 }
+
+TEST_CASE("speech-relative threshold follows the supplied speech level; absolute without one") {
+    auto p = baseline();
+    p.set(ParamId::ExpThresholdDbfs, -30.0f);
+    p.set(ParamId::ExpThresholdMode, static_cast<float>(core::ThresholdMode::SpeechRelative));
+    p.set(ParamId::ExpRelativeThresholdDb, -15.0f);
+    core::modules::Expander e;
+    e.prepare(fs, 1);
+    e.update(p);
+    CHECK(e.effectiveThresholdDb() == doctest::Approx(-30.0)); // no measurement: absolute
+    e.setSpeechLevelDb(-20.0);
+    CHECK(e.effectiveThresholdDb() == doctest::Approx(-35.0));
+    e.setSpeechLevelDb(-5.0);
+    CHECK(e.effectiveThresholdDb() == doctest::Approx(-20.0));
+    e.setSpeechLevelDb(std::nullopt);
+    CHECK(e.effectiveThresholdDb() == doctest::Approx(-30.0));
+    // The resolved threshold survives a parameter update.
+    e.setSpeechLevelDb(-10.0);
+    p.set(ParamId::ExpRelativeThresholdDb, -20.0f);
+    e.update(p);
+    CHECK(e.effectiveThresholdDb() == doctest::Approx(-30.0));
+    // Static curve uses it: -45 dBFS is 15 dB under -> 30 dB under at 2:1 (cap 60).
+    CHECK(e.staticGainDb(-45.0) == doctest::Approx(-15.0));
+    // Absolute mode ignores the measurement.
+    p.set(ParamId::ExpThresholdMode, static_cast<float>(core::ThresholdMode::Absolute));
+    e.update(p);
+    CHECK(e.effectiveThresholdDb() == doctest::Approx(-30.0));
+}
+
+namespace {
+/// Floor at -50 dBFS RMS for 0.5 s, then a burst at -15 dBFS of `burstMs`, then floor again.
+core::AudioBuffer burstMaterial(double burstMs) {
+    const std::size_t frames = 48000;
+    core::AudioBuffer b(1, frames);
+    const std::size_t b0 = 24000, b1 = b0 + static_cast<std::size_t>(burstMs * 48.0);
+    for (std::size_t i = 0; i < frames; ++i) {
+        const double t = static_cast<double>(i) / fs;
+        const double amp = (i >= b0 && i < b1) ? std::sqrt(2.0) * std::pow(10.0, -15.0 / 20.0)
+                                               : std::sqrt(2.0) * std::pow(10.0, -50.0 / 20.0);
+        b.channel(0)[i] = static_cast<float>(amp * std::sin(2.0 * test::kPi * 1000.0 * t));
+    }
+    return b;
+}
+} // namespace
+
+TEST_CASE("transient rejection: a 2 ms click never opens the expander, a 40 ms word does") {
+    auto p = baseline();
+    p.set(ParamId::ExpThresholdDbfs, -30.0f);
+    p.set(ParamId::ExpMaxAttenuationDb, 15.0f); // floor is 20 dB under: always capped
+    p.set(ParamId::ExpRmsWindowMs, 2.0f);
+    p.set(ParamId::ExpAttackMs, 0.5f);
+    p.set(ParamId::ExpHoldMs, 0.0f);
+    p.set(ParamId::ExpTransientRejectMs, 12.0f); // needs 8 ms above threshold within 12 ms
+    p.set(ParamId::ExpLookaheadMs, 0.0f);
+
+    core::modules::Expander e;
+    e.prepare(fs, 1);
+    e.update(p);
+    constexpr std::size_t D = 576;
+    CHECK(e.latencySamples() == D); // delay = max(lookahead, transient reject)
+
+    // Click: 3 ms burst. Output (delayed by D) over the burst must stay 15 dB down (floor is
+    // 20 dB under threshold -> 40 dB under at 2:1, capped at 15 dB => gain -15 dB).
+    auto click = burstMaterial(2.0);
+    test::processInBlocks(click, 512, [&](core::AudioView v) { e.process(v); });
+    const double clickOut = test::peakDb(click, 0, 24000 + D, 24000 + D + 96);
+    CHECK(clickOut == doctest::Approx(-15.0 + 3.01 - 15.0).epsilon(0.02));
+    // ...and the room tone right after the click is not let through either (no "pop").
+    CHECK(test::rmsDb(click, 0, 24000 + D + 96, 24000 + D + 96 + 2400) == doctest::Approx(-50.0 - 15.0).epsilon(0.02));
+
+    // Word: 40 ms burst. The burst must come through at full level, including its first
+    // milliseconds (the onset is preserved thanks to the delay).
+    e.reset();
+    auto word = burstMaterial(40.0);
+    test::processInBlocks(word, 512, [&](core::AudioView v) { e.process(v); });
+    const double onset = test::peakDb(word, 0, 24000 + D, 24000 + D + 144);        // first 3 ms
+    const double body = test::peakDb(word, 0, 24000 + D + 480, 24000 + D + 1900);   // 10..40 ms
+    CHECK(onset > -15.0 + 3.01 - 2.0);
+    CHECK(body == doctest::Approx(-15.0 + 3.01).epsilon(0.01));
+
+    // With rejection off the same click opens the expander (passes near full level).
+    p.set(ParamId::ExpTransientRejectMs, 0.0f);
+    e.update(p);
+    e.reset();
+    CHECK(e.latencySamples() == 0);
+    auto click2 = burstMaterial(2.0);
+    test::processInBlocks(click2, 512, [&](core::AudioView v) { e.process(v); });
+    CHECK(test::peakDb(click2, 0, 24000, 24000 + 96) > -15.0 + 3.01 - 3.0);
+}
+
+TEST_CASE("transient rejection: a plosive burst followed by a vowel is kept") {
+    auto p = baseline();
+    p.set(ParamId::ExpThresholdDbfs, -30.0f);
+    p.set(ParamId::ExpMaxAttenuationDb, 15.0f);
+    p.set(ParamId::ExpRmsWindowMs, 2.0f);
+    p.set(ParamId::ExpAttackMs, 1.0f);
+    p.set(ParamId::ExpHoldMs, 0.0f);
+    p.set(ParamId::ExpTransientRejectMs, 12.0f);
+    p.set(ParamId::ExpLookaheadMs, 15.0f); // 3 ms pre-roll for the attack
+    core::modules::Expander e;
+    e.prepare(fs, 1);
+    e.update(p);
+    const std::size_t D = e.latencySamples();
+    CHECK(D == 720);
+    core::AudioBuffer b(1, 48000);
+    const std::size_t burst0 = 24000, burst1 = burst0 + 384, vowel0 = burst1 + 240, vowel1 = vowel0 + 2880;
+    for (std::size_t i = 0; i < b.numFrames(); ++i) {
+        const double t = static_cast<double>(i) / fs;
+        const bool loud = (i >= burst0 && i < burst1) || (i >= vowel0 && i < vowel1);
+        const double amp = std::sqrt(2.0) * std::pow(10.0, (loud ? -12.0 : -50.0) / 20.0);
+        b.channel(0)[i] = static_cast<float>(amp * std::sin(2.0 * test::kPi * 1000.0 * t));
+    }
+    test::processInBlocks(b, 512, [&](core::AudioView v) { e.process(v); });
+    // The 8 ms burst alone is just enough to verify; the delay then puts the opening ahead
+    // of the burst at the output.
+    CHECK(test::peakDb(b, 0, burst0 + D, burst1 + D) > -12.0 + 3.01 - 1.0);
+    CHECK(test::peakDb(b, 0, vowel0 + D + 240, vowel1 + D) == doctest::Approx(-12.0 + 3.01).epsilon(0.01));
+}
+
+TEST_CASE("transient rejection does not change steady-state behaviour or hold") {
+    auto p = baseline();
+    p.set(ParamId::ExpTransientRejectMs, 8.0f);
+    CHECK(steady(p, -20.0) == doctest::Approx(-20.0).epsilon(0.005));
+    CHECK(steady(p, -40.0) == doctest::Approx(-50.0).epsilon(0.01));
+}

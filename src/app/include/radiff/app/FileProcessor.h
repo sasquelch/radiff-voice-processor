@@ -2,6 +2,7 @@
 
 #include "radiff/app/ExitCodes.h"
 #include "radiff/audioio/WavFile.h"
+#include "radiff/core/Analysis.h"
 #include "radiff/core/Parameters.h"
 
 #include <cstdint>
@@ -26,6 +27,9 @@ struct FileJob {
     std::size_t blockFrames = 512;
     /// Allow replacing an existing output file (explicit opt-in; the source is never overwritten).
     bool overwrite = false;
+    /// Measure only: run the analysis pass, fill FileJobReport::analysis and the resolved
+    /// expander threshold, write nothing. `output` may be empty.
+    bool analyzeOnly = false;
 };
 
 struct FileJobReport {
@@ -36,6 +40,11 @@ struct FileJobReport {
     std::size_t latencyFrames = 0; ///< engine latency that was compensated
     float peakIn = 0.0f;        ///< linear peak of the input
     float peakOut = 0.0f;       ///< linear peak of the output, for logging/validation
+    /// Level statistics of the input as seen by the expander detector (after input stage + EQ).
+    core::LevelAnalysis analysis;
+    /// Expander threshold actually used (dBFS) after resolving the threshold mode.
+    double expanderThresholdDbfs = 0.0;
+    bool expanderThresholdIsRelative = false;
 };
 
 using ProgressFn = std::function<void(double fraction)>;
