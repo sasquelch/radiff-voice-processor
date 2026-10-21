@@ -7,7 +7,8 @@ VERSION=$(grep -E 'project\(RaDiffVoiceProcessor' -A1 "$(dirname "$0")/../CMakeL
 STAGE="$DIST/RaDiff-Voice-Processor-$VERSION-macOS"
 rm -rf "$STAGE"; mkdir -p "$STAGE"
 cp "$BUILD/bin/RaDiffVoiceCLI" "$STAGE/"
-[[ -d "$BUILD/bin/RaDiff Voice Processor.app" ]]        && cp -R "$BUILD/bin/RaDiff Voice Processor.app" "$STAGE/"
+# Standalone app: iPlug2 places it in <build>/out (see src/standalone/CMakeLists.txt).
+[[ -d "$BUILD/out/RaDiffVoice.app" ]]                   && cp -R "$BUILD/out/RaDiffVoice.app" "$STAGE/"
 [[ -d "$BUILD/bin/RaDiff Voice Processor.vst3" ]]       && cp -R "$BUILD/bin/RaDiff Voice Processor.vst3" "$STAGE/"
 [[ -d "$BUILD/bin/RaDiff Voice Processor.component" ]]  && cp -R "$BUILD/bin/RaDiff Voice Processor.component" "$STAGE/"
 cp -R "$(dirname "$0")/../presets" "$STAGE/Presets"

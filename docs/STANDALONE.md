@@ -107,9 +107,11 @@ player logic behind them is unit-tested).
 
 ## Windows
 
-`src/standalone/resources/main.rc`, `RaDiffVoice.ico` and the CMake copy step for presets/fonts are
-**authored but not executed** (no Windows machine, no CI minutes). First run on Windows should
-check: resource compilation, font lookup next to the exe, `bundledResourceDirectory()`.
+`RaDiffVoice.exe` compiles and links on GitHub Actions (MSVC 2022, NanoVG/GL2) since 2026-10-21 and
+`test_ui` passes there, so `main.rc`, the icon and the preset/font copy step are at least accepted
+by the toolchain. **Nobody has launched the Windows app yet**: window creation, GL2 rendering,
+resource lookup next to the exe and audio-device selection are unverified until someone runs the
+CI artifact on a Windows PC.
 
 ## Not in this phase (spec §7 items still open)
 

@@ -24,9 +24,9 @@ Legend: ✅ verified · 🟡 built but not executed · ⬜ not yet · — n/a
 |---|---|---|---|---|---|---|
 | CLI · macOS arm64 | ✅ Debug, ASan/UBSan, Release | ✅ 34/34 CTest, `test_core` 73 cases / 4841 assertions, real audio | — | — | ✅ round 2: medium tier approved by the owner on 4 real files (expander only; full chain re-listen after Phase 6) | ⬜ |
 | CLI · macOS x86_64 (Universal slice) | ✅ `lipo` both slices, `minos 11.0` | 🟡 Rosetta 2 not installed on the dev Mac | — | — | ⬜ | ⬜ |
-| CLI · Windows x64 | ⬜ **authored, not executed** (no Windows machine; GitHub Actions quota exhausted → workflow is manual-only) | ⬜ | — | — | ⬜ | ⬜ |
+| CLI · Windows x64 | ✅ MSVC 2022 x64 Release on GitHub Actions (`windows-2022`), run 39695841863 | ✅ 34/34 CTest on Windows (DSP, WAV, presets, CLI integration incl. Unicode path) | — | — | ⬜ | 🟡 portable ZIP uploaded as CI artifact, not yet run by a person |
 | Standalone · macOS arm64 | ✅ Debug + Release (NanoVG/Metal) | ✅ `test_ui` preset library; app launched, rendered (self-screenshot), file job ran | — | — | ⬜ not yet heard live | ⬜ unsigned, not notarised |
-| Standalone · Windows x64 | ⬜ authored, not executed | ⬜ | — | — | ⬜ | ⬜ |
+| Standalone · Windows x64 | ✅ `RaDiffVoice.exe` compiles and links on CI (NanoVG/GL2) | ✅ `test_ui` (preset library, file player) on Windows | — | — | ⬜ | ⬜ never launched: window, resources, audio device untested |
 | VST3 · macOS / Windows | ⬜ | ⬜ | ⬜ | ⬜ REAPER + Audition 2024/2025 available on the Mac; no Windows host | ⬜ | ⬜ |
 | AUv2 · macOS | ⬜ | ⬜ | ⬜ auval | ⬜ Logic Pro not installed | ⬜ | ⬜ |
 | Presets cross-platform | ✅ schema + canonical bytes | ✅ round trip, spec example, defaults, clamps, BOM, 10 factory presets | — | — | — | ⬜ parity across OSes pending a Windows build |
@@ -34,8 +34,10 @@ Legend: ✅ verified · 🟡 built but not executed · ⬜ not yet · — n/a
 ## Known blockers and risks
 
 - **Windows verification** comes from the GitHub Actions Windows job (repository made public on
-  2026-10-21, so runners are free). Until its first green run every Windows code path (UTF-16
-  paths, `ReplaceFileW`, `CommandLineToArgvW`, `CreateProcessW`, the app's resources) is unverified.
+  2026-10-21). First green run the same day: everything compiles with MSVC and all 34 tests pass,
+  which exercises UTF-16 paths, `ReplaceFileW`, the Unicode CLI path and the preset/file-player
+  logic. **Still unverified:** launching `RaDiffVoice.exe` (window, GL2 rendering, resources next
+  to the exe, WASAPI/ASIO devices) — nobody has run the Windows app yet.
 - **Listening approval** is a release gate (spec §2). Round 1 found clicks and breaths; the
   cause (absolute −48 dBFS threshold far below real breath levels, gate open during hold) is
   fixed. Round 2: the owner chose the medium tier, which is the Balanced-preset default, but

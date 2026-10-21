@@ -4,6 +4,22 @@ Only results that were actually executed are recorded here, with the environment
 Environment for all entries unless stated: Apple M1 Max, macOS 27.0.1, Xcode 27.1
 (Apple clang 21.0.0), CMake 4.4.3, Ninja 1.13.2, repository commit as of the entry date.
 
+## 2026-10-21 — First Windows build (GitHub Actions, after the repository went public)
+
+Three CI rounds, all on `windows-2022` with MSVC 14.44, CMake 3.31.6, Ninja 1.12.1, preset
+`windows-x64-release`; the macOS job passed in every round.
+
+| Round | Result | Cause / fix |
+|---|---|---|
+| 1 (run 39694900270) | build failed in `test_parameters.cpp` | `std::nanf` without `<cmath>`; replaced by `std::numeric_limits<float>::quiet_NaN()`; CI build now uses `-k 0` so one run shows every error |
+| 2 (run 39695279698) | **every library, `RaDiffVoiceCLI.exe`, `RaDiffVoice.exe` and the other test binaries linked**; `test_core` failed to compile | MSVC instantiates `operator<<(ostream&, string_view)` when doctest stringifies values and needs `<ostream>` in the TU; added to every test file |
+| 3 (run 39695841863) | ✅ **100 % tests passed, 0 failed out of 34** on Windows; portable ZIP artifact uploaded | — |
+
+What this proves: the shared engine, WAV I/O, preset format (byte-identical canonical files),
+transactional output with `ReplaceFileW`, Unicode command-line/paths, the analysis pass, the
+preset library and the file player all behave identically on Windows as far as the tests
+measure. What it does not prove: anyone has run `RaDiffVoice.exe` or listened on Windows.
+
 ## 2026-10-21 — Preview playback in the standalone app
 
 Owner request: load a file and hear it live through the current settings while watching the

@@ -7,8 +7,8 @@ all driven by one original, framework-independent C++20 DSP engine and one porta
 
 | Artifact | macOS | Windows | Status |
 |---|---|---|---|
-| `RaDiffVoiceCLI` / `RaDiffVoiceCLI.exe` | Universal (arm64 + x86_64) | x64 | **Real DSP chain, builds and passes 34 tests on macOS**; Windows authored, not yet compiled (no CI minutes / no Windows PC) |
-| `RaDiffVoice.app` / `RaDiffVoice.exe` | arm64 (Universal untested) | x64 | **macOS: builds, runs, every parameter editable, presets save/load, single-file processing** (see docs/STANDALONE.md); Windows authored, not compiled |
+| `RaDiffVoiceCLI` / `RaDiffVoiceCLI.exe` | Universal (arm64 + x86_64) | x64 | **Builds and passes 34 tests on macOS and on Windows (GitHub Actions, MSVC 2022)**; Windows binary not yet run by a person |
+| `RaDiffVoice.app` / `RaDiffVoice.exe` | arm64 (Universal untested) | x64 | **macOS: builds, runs, every parameter editable, presets save/load, file processing and preview playback** (see docs/STANDALONE.md); Windows: compiles and links on CI, never launched |
 | `RaDiff Voice Processor.vst3` | planned (Phase 6) | planned (Phase 6) | not started |
 | `RaDiff Voice Processor.component` (AUv2) | planned (Phase 6) | n/a | not started |
 
