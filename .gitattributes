@@ -1,0 +1,20 @@
+# Normalise line endings so macOS and Windows checkouts build identically.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF so cmd.exe and PowerShell are happy.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets
+*.wav binary
+*.aif binary
+*.aiff binary
+*.flac binary
+*.mp3 binary
+*.png binary
+*.jpg binary
+*.icns binary
+*.ico binary
+*.ttf binary
+*.otf binary

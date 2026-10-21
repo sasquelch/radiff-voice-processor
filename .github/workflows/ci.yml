@@ -1,0 +1,142 @@
+# RaDiff Voice Processor - cross-platform CI
+#
+# Runs on every push to main and every pull request. Both jobs build the SAME commit;
+# a macOS build never implies a Windows build (and vice versa).
+#
+# Cost notes (see docs/CI.md): GitHub-hosted runners are free for public repositories.
+# For private repositories the free tier is 2,000 minutes/month, with Windows minutes
+# billed at 2x and macOS minutes at 10x. Hosted CI is optional: everything here can be
+# run locally with scripts/build-mac.sh and scripts/build-windows.ps1.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pin tool versions for reproducibility.
+  CMAKE_VERSION: 3.31.6
+  NINJA_VERSION: 1.12.1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  macos:
+    name: macOS (Universal arm64 + x86_64)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Check out source and pinned submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer || sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)/Contents/Developer"
+          xcodebuild -version
+          clang++ --version
+
+      - name: Install pinned CMake and Ninja
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: ${{ env.CMAKE_VERSION }}
+          ninjaVersion: ${{ env.NINJA_VERSION }}
+
+      - name: Configure (Universal Release)
+        run: cmake --preset mac-universal-release
+
+      - name: Build
+        run: cmake --build --preset mac-universal-release --parallel
+
+      - name: Verify Universal slices and deployment target
+        run: |
+          set -e
+          for f in build/mac-universal-release/bin/RaDiffVoiceCLI; do
+            lipo -info "$f" | tee /dev/stderr | grep -q "x86_64 arm64" || lipo -info "$f" | grep -q "arm64 x86_64"
+            otool -l "$f" | grep -A3 LC_BUILD_VERSION | grep -q "minos 11.0"
+          done
+
+      - name: DSP unit tests + preset/CLI integration tests (arm64)
+        run: ctest --preset mac-universal-release --output-on-failure
+
+      - name: CLI integration tests under Rosetta (x86_64 slice)
+        run: |
+          arch -x86_64 build/mac-universal-release/bin/RaDiffVoiceCLI --version
+          arch -x86_64 build/mac-universal-release/bin/test_core
+          arch -x86_64 build/mac-universal-release/bin/test_audioio
+          arch -x86_64 build/mac-universal-release/bin/test_presets
+          arch -x86_64 build/mac-universal-release/bin/test_app
+
+      # Phase 6: enabled when the plug-in targets exist.
+      - name: VST3 validation (Steinberg validator)
+        if: ${{ hashFiles('src/plugins/vst3/*.cpp') != '' }}
+        run: scripts/validate-vst3.sh build/mac-universal-release
+
+      - name: AU validation (auval)
+        if: ${{ hashFiles('src/plugins/au/*.cpp') != '' }}
+        run: scripts/validate-au.sh build/mac-universal-release
+
+      - name: Package
+        run: scripts/package-mac.sh build/mac-universal-release dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: radiff-macos-universal-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  windows:
+    name: Windows x64 (MSVC)
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - name: Check out source and pinned submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install pinned CMake and Ninja
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: ${{ env.CMAKE_VERSION }}
+          ninjaVersion: ${{ env.NINJA_VERSION }}
+
+      - name: Set up MSVC x64 environment (Visual Studio 2022 + Windows SDK)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure (x64 Release)
+        run: cmake --preset windows-x64-release
+
+      - name: Build
+        run: cmake --build --preset windows-x64-release --parallel
+
+      - name: DSP unit tests + preset/CLI integration tests
+        run: ctest --preset windows-x64-release --output-on-failure
+
+      - name: VST3 validation (Steinberg validator)
+        if: ${{ hashFiles('src/plugins/vst3/*.cpp') != '' }}
+        run: scripts\validate-vst3.ps1 build\windows-x64-release
+
+      - name: Package (portable ZIP)
+        run: scripts\package-windows.ps1 build\windows-x64-release dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: radiff-windows-x64-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
