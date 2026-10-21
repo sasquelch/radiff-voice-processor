@@ -4,6 +4,7 @@
 
 #include "radiff/core/Engine.h"
 #include "radiff/core/modules/Equalizer.h"
+#include "radiff/ui/FilePlayer.h"
 #include "radiff/ui/JobRunner.h"
 #include "radiff/ui/PresetLibrary.h"
 
@@ -41,6 +42,12 @@ enum EControlTags {
     kTagLatencyText,
     kTagSnapshot,
     kTagOverwrite,
+    kTagPreviewPlay,
+    kTagPreviewLoop,
+    kTagPreviewPosition,
+    kTagPreviewTime,
+    kTagPreviewInfo,
+    kTagSource,
     kNumTags
 };
 
@@ -86,6 +93,11 @@ private:
     void setStatus(const std::string& text);
     void setResult(const std::string& text);
 
+    // --- preview playback (file through the live engine) --------------------------------
+    void previewLoad(const std::filesystem::path& file);
+    void previewLoadDialog();
+    void pollPreview();
+
     // --- layout ---------------------------------------------------------------------------
     void layout(iplug::igraphics::IGraphics* g);
     void layoutModulePanel(iplug::igraphics::IGraphics* g, const iplug::igraphics::IRECT& bounds, radiff::core::Module m,
@@ -94,6 +106,7 @@ private:
     void layoutHeader(iplug::igraphics::IGraphics* g, const iplug::igraphics::IRECT& bounds);
     void layoutMeters(iplug::igraphics::IGraphics* g, const iplug::igraphics::IRECT& bounds);
     void layoutFileBar(iplug::igraphics::IGraphics* g, const iplug::igraphics::IRECT& bounds);
+    void layoutPreviewBar(iplug::igraphics::IGraphics* g, const iplug::igraphics::IRECT& bounds);
     iplug::igraphics::IControl* makeParamControl(const iplug::igraphics::IRECT& cell, radiff::core::ParamId id,
                                                  const char* label);
     void attachPanel(iplug::igraphics::IGraphics* g, const iplug::igraphics::IRECT& bounds, const char* title,
@@ -105,6 +118,7 @@ private:
     std::array<float*, 2> scratchPtrs_{};
     std::size_t scratchFrames_ = 0;
     std::atomic<int> reportedLatency_{-1};
+    radiff::ui::FilePlayer player_; ///< preview: replaces the live input while playing
 
     // --- UI state -------------------------------------------------------------------------
     radiff::ui::PresetLibrary presets_;
@@ -123,4 +137,10 @@ private:
     std::filesystem::path autoIn_, autoOut_; ///< RADIFF_AUTO_PROCESS_IN/OUT: run one file job through the GUI path
     bool autoStarted_ = false, autoFailed_ = false;
     int autoDoneTick_ = 0;
+    std::filesystem::path autoPlay_; ///< RADIFF_AUTO_PLAY=<wav>: preview the file for ~3 s, print meters, exit
+    bool autoPlayStarted_ = false, autoPlayReported_ = false;
+    int autoPlayDoneTick_ = 0;
+    float autoPlayMaxIn_ = 0.f, autoPlayMaxOut_ = 0.f; ///< largest block peaks seen while auto-playing
+    bool previewWasPlaying_ = false;
+    std::string previewFileText_;
 };

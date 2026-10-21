@@ -59,7 +59,29 @@ level is tracked online and the threshold follows it, refreshed every 100 ms, on
 second of speech has been heard; until then the absolute threshold applies and the Expander
 panel's "Threshold in use" line says so. Measured on the reference take it was within 1 dB of
 the file analysis after 12 s (docs/TEST_RESULTS.md). The Meters panel shows IN/OUT peaks and the
-gain reduction of the expander (EXP), de-esser (DS) and both compressors.
+gain reduction of the expander (EXP), de-esser (DS) and both compressors. Preview playback (next
+section) is "live input from a file": the same tracker, meters and bypass apply.
+
+## Preview playback (hear a file through the live settings)
+
+The **PREVIEW** strip above the file bar plays a WAV through the live engine: *Load…* (choosing an
+Input file in the file bar also loads it here), *Play/Pause*, *Stop*, *LOOP*, a position bar
+(click or drag to seek), time read-out, file name / rate / channels, and a **SOURCE** indicator
+that switches from `LIVE INPUT` to `FILE PREVIEW` while playing. While the file plays it replaces
+the audio-device input inside `ProcessBlock` (the microphone is muted meanwhile) and everything
+else is untouched: every knob acts immediately, the meters show the file's levels and the stages'
+gain reduction, the header PROCESS/BYPASSED toggle is the A/B, the speech tracker follows the
+file, and the output goes to the selected output device. Stop or the end of the file (unless
+looping) returns to the live input.
+
+Implementation: `radiff::ui::FilePlayer` (`src/ui`, toolkit-free, tested in
+`tests/ui/test_file_player.cpp`). The file is read on the UI thread into one of two slots and
+published to the audio thread without locks or allocations (atomic active/reading slot indices;
+the UI never overwrites a slot a render is reading). When the file's sample rate equals the
+device rate the samples are copied bit-exactly; otherwise a 32-tap windowed-sinc interpolator
+(Blackman window, cut-off at 95 % of the lower Nyquist, kernel normalised per output sample)
+resamples on the fly: 48 kHz → 44.1 kHz keeps 1 kHz and 6 kHz tones within 0.2 dB (tested).
+A/B at *matched loudness* is not implemented: bypass compares at the natural level difference.
 
 ## Automation hooks (debug/documentation)
 
@@ -68,10 +90,20 @@ gain reduction of the expander (EXP), de-esser (DS) and both compressors.
 - `RADIFF_AUTO_PROCESS_IN=<in.wav>` (+ optional `RADIFF_AUTO_PROCESS_OUT=<out.wav>`): runs one
   Process job through the GUI code path (overwrite on), prints the result to stderr and exits
   (or takes the screenshot first when both are set).
+- `RADIFF_AUTO_PLAY=<wav>`: loads the file into the preview player, seeks to 10 s, plays for
+  about 3 s through the live engine and the real audio device, prints one line with the engine
+  meters (current and maximum input/output peaks, per-stage gain reduction) and the player
+  position to stdout, then exits (after the screenshot when `RADIFF_SCREENSHOT` is also set).
 
 Verified on 2026-10-21 (macOS 27, Apple M1 Max, Debug, NanoVG/Metal): the app builds, opens,
 renders every panel, and the auto-processed `A-raw-TOM0010679.wav` is **bit-identical** to the
 CLI render with the same preset (`radiff_testtool compare-wav … --tol 1e-6` → max abs diff 0).
+Preview verified the same day with `RADIFF_AUTO_PLAY`: the 48 kHz file played through the
+44.1 kHz device stream (resampler path), position advanced 10.0 → 13.0 s in 3 s, input peaks up to
+−7.6 dBFS and output peaks up to −10.9 dBFS reached the meters, the expander showed 11 dB of
+reduction in a pause and the live tracker resolved the threshold to −33.7 dBFS. Not exercised by
+a person yet: clicking Play/Stop/Loop and dragging the position bar (code paths written; the
+player logic behind them is unit-tested).
 
 ## Windows
 
@@ -82,11 +114,10 @@ check: resource compilation, font lookup next to the exe, `bundledResourceDirect
 ## Not in this phase (spec §7 items still open)
 
 - Batch processing of several files, collision policies, per-file log.
-- Preview playback with A/B at matched loudness and a waveform display.
+- Preview A/B at *matched* loudness and a waveform display (preview playback itself exists).
 - Drag & drop of files onto the window.
 - Keyboard navigation between controls beyond what IGraphics provides.
 - Per-stage transfer-curve displays for the dynamics modules.
-- A fourth gain-reduction meter for the de-esser (`MAIN-MERGE` marker in `OnIdle`).
 
 ## Notes for maintainers
 
