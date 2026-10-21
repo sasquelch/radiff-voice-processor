@@ -66,6 +66,20 @@ threshold −32.6 dBFS. Clicks at 27.87 s (−14.5 dBFS, inside a 150 ms gap in 
 Same pattern as before: a click in a real pause gets the full cap; a click inside the hold or
 release right after a word gets only what the release has reached so far.
 
+### Listening round 2 — owner verdict (2026-10-21)
+
+Owner listened to `B2-gentle/medium/strong` against `A-raw-*` for all four files and chose
+**medium** ("I feel like medium is a good setting"). Medium is the tier the Balanced, Bright,
+Deep and Female presets already use (speech-relative −12 dB, ratio 3:1, hysteresis 3 dB,
+hold 40 ms, release 60 ms, cap 20 dB, transient reject 12 ms, lookahead 15 ms), so the factory
+defaults stay as committed in `bdb7ec7`; no preset was changed by this verdict. Known and
+accepted at this tier: a mouse click that lands inside the hold/release right after a word is
+reduced by 6–8 dB rather than the 20 dB cap (TOM0010679 at 27.87 s and 36.86 s). Gentle
+(Talk Radio, Podcast, Soft Spoken) and strong (Noisy Room) remain available as presets.
+Status: expander tuning **listening-approved for file mode at the medium tier**; the
+"awaiting listening approval" wording in the preset descriptions is kept until the full chain
+(Phase 6 stages) has been heard.
+
 ### Automated suites after the change
 
 | Preset | Result |
