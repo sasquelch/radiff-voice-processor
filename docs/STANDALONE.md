@@ -54,9 +54,12 @@ device is needed for file processing.
 ## Live input vs. file mode
 
 The speech-relative expander threshold needs a measurement of the material. File jobs get it from
-the analysis pass. For live input the engine does not have an online tracker yet, so
-`speechRelative` presets fall back to the absolute threshold there; the Expander panel says so.
-(The hook for the tracker is marked `MAIN-MERGE` in `RaDiffVoiceApp::OnReset`.)
+the analysis pass. Live input uses `Engine::setSpeechTracking(true, 20 s)`: the gated speech
+level is tracked online and the threshold follows it, refreshed every 100 ms, once about one
+second of speech has been heard; until then the absolute threshold applies and the Expander
+panel's "Threshold in use" line says so. Measured on the reference take it was within 1 dB of
+the file analysis after 12 s (docs/TEST_RESULTS.md). The Meters panel shows IN/OUT peaks and the
+gain reduction of the expander (EXP), de-esser (DS) and both compressors.
 
 ## Automation hooks (debug/documentation)
 

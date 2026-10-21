@@ -210,8 +210,9 @@ void RaDiffVoiceApp::OnReset() {
     }
     engine_.prepare(cfg);
     engine_.setParameters(liveParameters());
-    // MAIN-MERGE: engine_.setSpeechTracking(true)  (online speech-level tracker for live input;
-    // until it lands, speechRelative presets fall back to the absolute threshold in live mode)
+    // Live input: track the speech level online so speechRelative presets work without a file
+    // analysis pass (first ~1 s of speech runs on the absolute threshold; see docs/DSP_DESIGN.md).
+    engine_.setSpeechTracking(true, 20.0);
     reportedLatency_.store(-1, std::memory_order_relaxed);
 }
 
@@ -305,15 +306,17 @@ void RaDiffVoiceApp::OnIdle() {
         c->setReduction(m.expanderReductionDb);
     if (auto* c = dynamic_cast<ReductionMeterControl*>(g->GetControlWithTag(kTagGrComp1)))
         c->setReduction(m.compressor1ReductionDb);
+    if (auto* c = dynamic_cast<ReductionMeterControl*>(g->GetControlWithTag(kTagGrDeesser)))
+        c->setReduction(m.deesserReductionDb);
     if (auto* c = dynamic_cast<ReductionMeterControl*>(g->GetControlWithTag(kTagGrComp2)))
         c->setReduction(m.compressor2ReductionDb);
-    // MAIN-MERGE: de-esser GR meter (Meters::deesserReductionDb) goes here with a 4th bar.
 
     if (auto* t = dynamic_cast<ITextControl*>(g->GetControlWithTag(kTagExpThresholdText))) {
         const auto& exp = engine_.expander();
         std::string s = "Threshold in use: " + formatDb(exp.effectiveThresholdDb()) + " dBFS";
         const bool relative = liveParameters().getInt(ParamId::ExpThresholdMode) == 1;
-        s += relative ? (exp.speechLevelDb() ? " (speech-relative)" : " (absolute fallback: no speech measurement in live mode)")
+        s += relative ? (exp.speechLevelDb() ? " (speech-relative, tracked live)"
+                                             : " (absolute until ~1 s of speech has been heard)")
                       : " (absolute)";
         if (std::strcmp(t->GetStr(), s.c_str()) != 0)
             t->SetStr(s.c_str());
@@ -937,9 +940,10 @@ void RaDiffVoiceApp::layoutMeters(IGraphics* g, const IRECT& bounds) {
         x += w + 2.f;
         return r;
     };
-    g->AttachControl(new LevelMeterControl(place(62.f), "IN", 2), kTagMeterIn);
-    g->AttachControl(new LevelMeterControl(place(62.f), "OUT", 2), kTagMeterOut);
+    g->AttachControl(new LevelMeterControl(place(52.f), "IN", 2), kTagMeterIn);
+    g->AttachControl(new LevelMeterControl(place(52.f), "OUT", 2), kTagMeterOut);
     g->AttachControl(new ReductionMeterControl(place(32.f), "EXP"), kTagGrExpander);
+    g->AttachControl(new ReductionMeterControl(place(32.f), "DS"), kTagGrDeesser);
     g->AttachControl(new ReductionMeterControl(place(32.f), "C1"), kTagGrComp1);
     g->AttachControl(new ReductionMeterControl(place(32.f), "C2"), kTagGrComp2);
 }

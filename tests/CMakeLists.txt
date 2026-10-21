@@ -37,6 +37,11 @@ target_link_libraries(test_presets PRIVATE radiff::presets radiff::json)
 radiff_add_test(test_app      app/test_transactional.cpp app/test_file_processor.cpp)
 target_link_libraries(test_app PRIVATE radiff::app)
 
+if(TARGET radiff::ui)
+    radiff_add_test(test_ui ui/test_preset_library.cpp)
+    target_link_libraries(test_ui PRIVATE radiff::ui radiff::presets)
+endif()
+
 # ---------------------------------------------------------------------------
 # CLI integration tests. radiff_testtool generates and verifies WAV files so the
 # tests are identical on every OS (no shell scripts, no sox, no python).

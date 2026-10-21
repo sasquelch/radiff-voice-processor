@@ -7,8 +7,8 @@ all driven by one original, framework-independent C++20 DSP engine and one porta
 
 | Artifact | macOS | Windows | Status |
 |---|---|---|---|
-| `RaDiffVoiceCLI` / `RaDiffVoiceCLI.exe` | Universal (arm64 + x86_64) | x64 | **Real DSP chain, builds and passes 31 tests on macOS**; Windows authored, not yet compiled (no CI minutes / no Windows PC) |
-| `RaDiff Voice Processor.app` / `RaDiffVoiceProcessor.exe` | planned (Phase 5) | planned (Phase 5) | not started |
+| `RaDiffVoiceCLI` / `RaDiffVoiceCLI.exe` | Universal (arm64 + x86_64) | x64 | **Real DSP chain, builds and passes 34 tests on macOS**; Windows authored, not yet compiled (no CI minutes / no Windows PC) |
+| `RaDiffVoice.app` / `RaDiffVoice.exe` | arm64 (Universal untested) | x64 | **macOS: builds, runs, every parameter editable, presets save/load, single-file processing** (see docs/STANDALONE.md); Windows authored, not compiled |
 | `RaDiff Voice Processor.vst3` | planned (Phase 6) | planned (Phase 6) | not started |
 | `RaDiff Voice Processor.component` (AUv2) | planned (Phase 6) | n/a | not started |
 
@@ -70,6 +70,7 @@ partial or missing deliverable.
 
 ## Documentation
 
+- [docs/STANDALONE.md](docs/STANDALONE.md) – the standalone app: build, window layout, presets, live vs file mode
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) – library layering and the platform-abstraction rules
 - [docs/BUILDING.md](docs/BUILDING.md) – toolchains, presets, options, deployment targets
 - [docs/CI.md](docs/CI.md) – GitHub Actions jobs, free-tier limits, building without hosted CI

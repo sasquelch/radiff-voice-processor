@@ -17,8 +17,13 @@ Detail (`modules/Presence`), compressor `autoMakeup`, and `Engine::setSpeechTrac
 speech level for live input) exist with tests; all OFF in factory presets. The owner asked for
 every dbx 286s control to have a counterpart: the mapping table is in docs/DSP_DESIGN.md.
 Multiband expander, saturation and limiter are not implemented and have no placeholder parameters.
-Next: Phase 4 standalone GUI (iPlug2) with every parameter and preset save/load, then Phase 3
-remainder (`--sample-rate`, `--channels`, `--log`, dither).
+**Phase 4 (first version, 2026-10-21):** iPlug2 standalone `RaDiffVoice-app` in `src/standalone`
+(+ toolkit-free `radiff::ui` in `src/ui`), controls generated from the parameter table, preset
+library, file panel, live speech tracking. Build: `cmake --preset mac-debug -DRADIFF_BUILD_STANDALONE=ON`
+(default ON on Apple/Windows for fresh caches), app at `build/<preset>/out/RaDiffVoice.app`;
+`RADIFF_SCREENSHOT=<png>` renders and exits (see docs/STANDALONE.md).
+Next: owner hands-on with the app, then Phase 3 remainder (`--sample-rate`, `--channels`, `--log`,
+dither), then VST3/AU wrappers reusing `radiff::ui`.
 
 ## Build and test (macOS, the development machine)
 

@@ -4,6 +4,20 @@ Only results that were actually executed are recorded here, with the environment
 Environment for all entries unless stated: Apple M1 Max, macOS 27.0.1, Xcode 27.1
 (Apple clang 21.0.0), CMake 4.4.3, Ninja 1.13.2, repository commit as of the entry date.
 
+## 2026-10-21 — Phase 4: standalone app (macOS)
+
+| What | Result |
+|---|---|
+| `cmake --preset mac-debug -DRADIFF_BUILD_STANDALONE=ON` + build | ✅ compiles (iPlug2 APP target, NanoVG/Metal, C++20); `radiff::ui` under the strict warning set |
+| `ctest --preset mac-debug` | ✅ 34/34 (new `test_ui`: preset library scan/load/dirty/save-as/delete/new against the factory folder and a temp user folder) |
+| App launch | ✅ `RaDiffVoice.app` starts, opens the default audio devices via RtAudio 6.0.1, loads "Broadcast Voice - Balanced", renders at 60 fps; self-screenshot `RADIFF_SCREENSHOT` reviewed: all 8 module panels, every parameter control, EQ curve, 6 meters, file bar, no overlaps at 1440×880 (Retina) |
+| File panel path | ✅ `RADIFF_AUTO_PROCESS_IN/OUT` hook ran `A-raw-TOM0010679.wav` through the GUI job runner (`app::processFile` on a worker thread): exit 0, report shows speech −20.6 / threshold −32.6; output compared with the CLI render of the same preset: max abs diff 0 (`radiff_testtool compare-wav`) |
+| Live tracker in the app | ✅ `Engine::setSpeechTracking(true, 20 s)` wired in `OnReset`; the Expander panel reports "absolute until ~1 s of speech has been heard" and then the tracked threshold (engine behaviour measured in the section below) |
+
+**Not verified:** a person clicking through file dialogs, the preset popup and Save As/Delete
+(code paths exist and the library behind them is tested); live audio heard through the app; the
+Universal (x86_64) slice of the app; Windows resources/build; code signing/notarisation.
+
 ## 2026-10-21 — Phase 6 (part 1): de-esser, enhancer, auto makeup, online speech tracker
 
 Added after the owner asked for every dbx 286s control to have a counterpart. All new stages

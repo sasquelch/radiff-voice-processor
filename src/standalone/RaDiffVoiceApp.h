@@ -26,6 +26,7 @@ enum EControlTags {
     kTagMeterIn,
     kTagMeterOut,
     kTagGrExpander,
+    kTagGrDeesser,
     kTagGrComp1,
     kTagGrComp2,
     kTagExpThresholdText,
