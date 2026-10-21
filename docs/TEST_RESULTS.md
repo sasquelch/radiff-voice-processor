@@ -50,6 +50,22 @@ threshold −40.9 / −24.7 / −30.6 dBFS (1012am / TOM / vikings). Release CLI
 analysis pass: 46 s file in 0.32 s (144× real time; was 283× with a single pass). vikings is an already
 processed broadcast file (15 dB dynamic range) and has no detectable breaths or clicks.
 
+**Unprocessed reference file** (owner-supplied `TOM0010679.mp3`, 192 kb/s 48 kHz stereo, decoded
+to 24-bit WAV; the earlier files had already been processed elsewhere). Peak +0.3 dBFS (MP3
+overshoot), gated speech level −20.6 dBFS, breaths −37…−46 dBFS (9 segments of 150–450 ms, e.g.
+8.60 s, 14.25 s, 19.80 s), digital silence between takes (−91 dBFS floor). Resolved Balanced
+threshold −32.6 dBFS. Clicks at 27.87 s (−14.5 dBFS, inside a 150 ms gap in a sentence),
+36.40 s (−23 dBFS, in a pause) and 36.86 s (−28 dBFS, 50 ms after a word).
+
+| Render | floor | breath band (median −43.5) | click 27.87 s | click 36.40 s | click 36.86 s |
+|---|---|---|---|---|---|
+| B2-gentle | −12.4 dB | −6.0 dB | −3.6 | −11.8 | −2.2 |
+| B2-medium | −20.4 | −12.5 | −6.1 | −19.9 | −7.8 |
+| B2-strong | −30.4 | −24.4 | −16.9 | −30.1 | −18.4 |
+
+Same pattern as before: a click in a real pause gets the full cap; a click inside the hold or
+release right after a word gets only what the release has reached so far.
+
 ### Automated suites after the change
 
 | Preset | Result |
