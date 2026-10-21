@@ -33,9 +33,9 @@ Legend: ✅ verified · 🟡 built but not executed · ⬜ not yet · — n/a
 
 ## Known blockers and risks
 
-- **Windows verification** needs either a Windows 10/11 PC (`scripts\build-windows.ps1`) or
-  GitHub Actions minutes (public repo = free; or a self-hosted runner). Until then every
-  Windows code path (UTF-16 paths, `ReplaceFileW`, `CommandLineToArgvW`, `CreateProcessW`) is unverified.
+- **Windows verification** comes from the GitHub Actions Windows job (repository made public on
+  2026-10-21, so runners are free). Until its first green run every Windows code path (UTF-16
+  paths, `ReplaceFileW`, `CommandLineToArgvW`, `CreateProcessW`, the app's resources) is unverified.
 - **Listening approval** is a release gate (spec §2). Round 1 found clicks and breaths; the
   cause (absolute −48 dBFS threshold far below real breath levels, gate open during hold) is
   fixed. Round 2: the owner chose the medium tier, which is the Balanced-preset default, but

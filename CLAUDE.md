@@ -38,8 +38,10 @@ build/mac-debug/bin/test_core           # doctest binaries accept -tc="*expander
 ```
 
 Windows: `scripts\build-windows.ps1` on a Windows 10/11 x64 PC with the free VS 2022 Build Tools.
-**GitHub Actions is manual-only** (owner's quota is exhausted, 2026-10-21); do not re-enable push
-triggers. Windows code paths are authored and unverified until run on a Windows machine.
+**The repository is public (owner's decision, 2026-10-21) so GitHub Actions is free and runs on
+every push**; the Windows job is the only Windows verification we have. If the repo goes private
+again, return the workflow to manual-only. Windows results come from CI logs/artifacts, never
+from a local run.
 
 ## Machine-specific notes (verified 2026-10-21)
 
