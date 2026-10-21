@@ -2,6 +2,8 @@
 
 #include "radiff/core/Parameters.h"
 
+#include <cmath>
+#include <limits>
 #include <set>
 #include <string>
 
@@ -72,7 +74,7 @@ TEST_CASE("clamping, stepping and value parsing") {
     CHECK(s.get(ParamId::InputHighPassSlopeDbOct) == 24.0f);
     s.set(ParamId::Bypass, 0.7f);
     CHECK(s.get(ParamId::Bypass) == 1.0f);
-    s.set(ParamId::ExpRatio, std::nanf(""));
+    s.set(ParamId::ExpRatio, std::numeric_limits<float>::quiet_NaN());
     CHECK(s.get(ParamId::ExpRatio) == 2.0f); // NaN -> default
 
     CHECK(parseParamValue(ParamId::ExpDetector, "peak") == 1.0f);

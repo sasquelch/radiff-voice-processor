@@ -123,8 +123,8 @@ jobs:
       - name: Configure (x64 Release)
         run: cmake --preset windows-x64-release
 
-      - name: Build
-        run: cmake --build --preset windows-x64-release --parallel
+      - name: Build (keep going so one run shows every error)
+        run: cmake --build --preset windows-x64-release --parallel -- -k 0
 
       - name: DSP unit tests + preset/CLI integration tests
         run: ctest --preset windows-x64-release --output-on-failure
