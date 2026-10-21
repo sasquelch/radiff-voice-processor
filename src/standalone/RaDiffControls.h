@@ -14,6 +14,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <string>
 
 namespace radiff::standalone {
@@ -250,6 +251,51 @@ private:
     }
     std::string path_;
     std::string placeholder_;
+};
+
+/// Preview transport bar: shows the play position and seeks on click/drag. The position is
+/// pushed from OnIdle (setPosition) and never written back into a parameter.
+class TransportBarControl : public IControl {
+public:
+    using SeekFn = std::function<void(double fraction)>;
+    TransportBarControl(const IRECT& bounds, SeekFn onSeek) : IControl(bounds), onSeek_(std::move(onSeek)) {
+        SetTooltip("Playback position. Click or drag to seek.");
+    }
+    void setPosition(double fraction, bool hasFile) {
+        const float f = static_cast<float>(std::clamp(fraction, 0.0, 1.0));
+        if (std::fabs(f - value_) > 0.0005f || hasFile != hasFile_) {
+            value_ = f;
+            hasFile_ = hasFile;
+            SetDirty(false);
+        }
+    }
+    void OnMouseDown(float x, float y, const IMouseMod& mod) override { seekTo(x); }
+    void OnMouseDrag(float x, float y, float, float, const IMouseMod&) override { seekTo(x); }
+    void Draw(IGraphics& g) override {
+        const Theme& t = theme();
+        const IRECT bar = mRECT.GetMidVPadded(5.f);
+        g.FillRoundRect(t.meterBack, bar, 3.f);
+        if (hasFile_) {
+            const float x = bar.L + value_ * bar.W();
+            g.FillRoundRect(t.accentDim, IRECT(bar.L, bar.T, x, bar.B), 3.f);
+            g.FillRect(t.accent, IRECT(x - 1.5f, mRECT.T + 2.f, x + 1.5f, mRECT.B - 2.f));
+        }
+        g.DrawRoundRect(t.frame, bar, 3.f);
+    }
+
+private:
+    void seekTo(float x) {
+        if (!hasFile_)
+            return;
+        const double f = std::clamp(static_cast<double>((x - mRECT.L) / mRECT.W()), 0.0, 1.0);
+        value_ = static_cast<float>(f);
+        if (onSeek_)
+            onSeek_(f);
+        SetDirty(false);
+    }
+    SeekFn onSeek_;
+    float value_ = 0.f;
+    bool hasFile_ = false;
 };
 
 /// Debug/documentation helper: when given a path it renders every other control into an

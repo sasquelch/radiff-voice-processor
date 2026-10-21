@@ -6,6 +6,7 @@ add_library(radiff_ui STATIC
     src/PresetLibrary.cpp
     src/JobRunner.cpp
     src/ParamText.cpp
+    src/FilePlayer.cpp
 )
 add_library(radiff::ui ALIAS radiff_ui)
 

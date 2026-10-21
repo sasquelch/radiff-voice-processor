@@ -38,8 +38,8 @@ radiff_add_test(test_app      app/test_transactional.cpp app/test_file_processor
 target_link_libraries(test_app PRIVATE radiff::app)
 
 if(TARGET radiff::ui)
-    radiff_add_test(test_ui ui/test_preset_library.cpp)
-    target_link_libraries(test_ui PRIVATE radiff::ui radiff::presets)
+    radiff_add_test(test_ui ui/test_preset_library.cpp ui/test_file_player.cpp)
+    target_link_libraries(test_ui PRIVATE radiff::ui radiff::presets radiff::audioio)
 endif()
 
 # ---------------------------------------------------------------------------

@@ -33,6 +33,14 @@ constexpr float kHeaderH = 56.f;
 constexpr float kTitleH = 24.f;
 constexpr float kRightColW = 244.f;
 constexpr float kFileBarH = 82.f;
+constexpr float kPreviewBarH = 46.f;
+
+std::string formatTime(double seconds) {
+    const int total10 = static_cast<int>(std::lround(std::max(0.0, seconds) * 10.0));
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%d:%02d.%d", total10 / 600, (total10 / 10) % 60, total10 % 10);
+    return buf;
+}
 
 const char* kFormatNames[] = {"Keep", "PCM 16", "PCM 24", "PCM 32", "Float 32"};
 
@@ -130,6 +138,8 @@ RaDiffVoiceApp::RaDiffVoiceApp(const InstanceInfo& info) : Plugin(info, MakeConf
         if (const char* out = std::getenv("RADIFF_AUTO_PROCESS_OUT"); out && *out)
             autoOut_ = platform::pathFromUtf8(out);
     }
+    if (const char* play = std::getenv("RADIFF_AUTO_PLAY"); play && *play)
+        autoPlay_ = platform::pathFromUtf8(play);
 
     // Start from the owner-approved factory default when it is available (round 2 of the
     // listening tests chose the Balanced/medium tier); otherwise from engine defaults.
@@ -229,15 +239,21 @@ void RaDiffVoiceApp::ProcessBlock(sample** inputs, sample** outputs, int nFrames
 
     for (int pos = 0; pos < nFrames; pos += static_cast<int>(scratchFrames_)) {
         const int n = std::min(static_cast<int>(scratchFrames_), nFrames - pos);
-        for (int c = 0; c < 2; ++c) {
-            const int src = nIn > 0 ? std::min(c, nIn - 1) : -1;
-            float* dst = scratch_[static_cast<std::size_t>(c)].data();
-            if (src < 0) {
-                std::fill(dst, dst + n, 0.0f);
-            } else {
-                const sample* s = inputs[src] + pos;
-                for (int i = 0; i < n; ++i)
-                    dst[i] = static_cast<float>(s[i]);
+        // Preview: the file replaces the device input (the microphone is muted meanwhile), so
+        // the engine, meters, bypass and latency behave exactly as for live input.
+        const bool preview = player_.isPlaying() &&
+                             player_.render(scratchPtrs_.data(), 2, static_cast<std::size_t>(n), GetSampleRate());
+        if (!preview) {
+            for (int c = 0; c < 2; ++c) {
+                const int src = nIn > 0 ? std::min(c, nIn - 1) : -1;
+                float* dst = scratch_[static_cast<std::size_t>(c)].data();
+                if (src < 0) {
+                    std::fill(dst, dst + n, 0.0f);
+                } else {
+                    const sample* s = inputs[src] + pos;
+                    for (int i = 0; i < n; ++i)
+                        dst[i] = static_cast<float>(s[i]);
+                }
             }
         }
         engine_.process(core::AudioView{scratchPtrs_.data(), 2, static_cast<std::size_t>(n)});
@@ -284,18 +300,52 @@ void RaDiffVoiceApp::OnIdle() {
     const bool autoFinished = autoStarted_ && autoDoneTick_ > 0;
     if (autoFinished && snapshotPath_.empty() && snapshotTicks_ >= autoDoneTick_ + 5)
         std::exit(autoFailed_ ? 1 : 0);
+    // RADIFF_AUTO_PLAY: preview a file for ~3 s through the live engine, report, (screenshot,) exit.
+    if (!autoPlay_.empty() && !autoPlayStarted_ && snapshotTicks_ >= 30) {
+        autoPlayStarted_ = true;
+        previewLoad(autoPlay_);
+        player_.seek(std::min(0.9, 10.0 / std::max(1.0, player_.durationSeconds()))); // skip a quiet intro
+        player_.play();
+        autoPlayDoneTick_ = snapshotTicks_ + 150; // ~3 s at the 20 ms idle rate
+    }
+    if (autoPlayStarted_ && !autoPlayReported_) {
+        const core::Meters mm = engine_.meters();
+        autoPlayMaxIn_ = std::max({autoPlayMaxIn_, mm.inputPeak[0], mm.inputPeak[1]});
+        autoPlayMaxOut_ = std::max({autoPlayMaxOut_, mm.outputPeak[0], mm.outputPeak[1]});
+    }
+    if (autoPlayStarted_ && !autoPlayReported_ && snapshotTicks_ >= autoPlayDoneTick_) {
+        autoPlayReported_ = true;
+        const core::Meters mm = engine_.meters();
+        auto db = [](float lin) { return lin > 1e-6f ? 20.0 * std::log10(static_cast<double>(lin)) : -120.0; };
+        std::printf("RaDiff auto-play: file=%s playing=%d position=%.2fs device=%.0fHz in=%.1f/%.1f dBFS out=%.1f/%.1f dBFS "
+                    "max-in=%.1f max-out=%.1f dBFS gr exp=%.1f ds=%.1f c1=%.1f c2=%.1f dB\n",
+                    player_.info().name.c_str(), player_.isPlaying() ? 1 : 0, player_.positionSeconds(), GetSampleRate(),
+                    db(mm.inputPeak[0]), db(mm.inputPeak[1]), db(mm.outputPeak[0]), db(mm.outputPeak[1]),
+                    db(autoPlayMaxIn_), db(autoPlayMaxOut_),
+                    static_cast<double>(mm.expanderReductionDb), static_cast<double>(mm.deesserReductionDb),
+                    static_cast<double>(mm.compressor1ReductionDb), static_cast<double>(mm.compressor2ReductionDb));
+        std::fflush(stdout);
+    }
+    if (autoPlayReported_ && snapshotPath_.empty() && snapshotTicks_ >= autoPlayDoneTick_ + 5)
+        std::exit(0);
     if (!snapshotPath_.empty()) {
         if (auto* s = dynamic_cast<SnapshotControl*>(g->GetControlWithTag(kTagSnapshot))) {
             if (s->done()) {
                 std::fprintf(stderr, "RaDiff: screenshot %s -> %s\n", s->failed() ? "FAILED" : "written", snapshotPath_.c_str());
                 std::exit(s->failed() || autoFailed_ ? 1 : 0);
             }
-            const bool due = autoIn_.empty() ? snapshotTicks_ == 75 // ~1.5 s: fonts loaded, first frames drawn
-                                             : (autoFinished && snapshotTicks_ == autoDoneTick_ + 10);
+            bool due = false;
+            if (!autoIn_.empty())
+                due = autoFinished && snapshotTicks_ == autoDoneTick_ + 10;
+            else if (!autoPlay_.empty())
+                due = autoPlayReported_ && snapshotTicks_ == autoPlayDoneTick_ + 2;
+            else
+                due = snapshotTicks_ == 75; // ~1.5 s: fonts loaded, first frames drawn
             if (due)
                 s->request(snapshotPath_);
         }
     }
+    pollPreview();
 
     const core::Meters m = engine_.meters();
     if (auto* c = dynamic_cast<LevelMeterControl*>(g->GetControlWithTag(kTagMeterIn)))
@@ -642,6 +692,7 @@ void RaDiffVoiceApp::chooseInputFile() {
         }
         setResult("");
         setStatus("Ready");
+        previewLoad(fileIn_);
     });
 }
 
@@ -743,6 +794,78 @@ void RaDiffVoiceApp::pollJob() {
         std::snprintf(buf, sizeof(buf), "%.1f s of silence (no signal); nothing to measure", a.durationSeconds);
     }
     setResult(buf);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Preview playback
+// ---------------------------------------------------------------------------------------------
+
+void RaDiffVoiceApp::previewLoad(const std::filesystem::path& file) {
+    const std::string err = player_.load(file);
+    if (!err.empty()) {
+        message(("Could not load the preview file:\n" + err).c_str());
+        return;
+    }
+    const auto info = player_.info();
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "%s  \xC2\xB7  %.0f Hz  \xC2\xB7  %s", info.name.c_str(), info.sampleRate,
+                  info.numChannels == 1 ? "mono" : "stereo");
+    previewFileText_ = buf;
+    if (IGraphics* g = GetUI())
+        if (auto* t = dynamic_cast<ITextControl*>(g->GetControlWithTag(kTagPreviewInfo)))
+            t->SetStr(previewFileText_.c_str());
+    pollPreview();
+}
+
+void RaDiffVoiceApp::previewLoadDialog() {
+    IGraphics* g = GetUI();
+    if (!g)
+        return;
+    WDL_String fileName, path;
+    if (!fileIn_.empty())
+        path.Set(platform::pathToUtf8(fileIn_.parent_path()).c_str());
+    g->PromptForFile(fileName, path, EFileAction::Open, "wav", [this](const WDL_String& f, const WDL_String&) {
+        if (f.GetLength())
+            previewLoad(platform::pathFromUtf8(f.Get()));
+    });
+}
+
+void RaDiffVoiceApp::pollPreview() {
+    IGraphics* g = GetUI();
+    if (!g)
+        return;
+    const bool playing = player_.isPlaying();
+    const bool hasFile = player_.hasFile();
+    const double dur = player_.durationSeconds();
+    const double pos = player_.positionSeconds();
+    if (player_.takeEnded())
+        setStatus("Preview reached the end of the file");
+    if (auto* b = dynamic_cast<IVButtonControl*>(g->GetControlWithTag(kTagPreviewPlay))) {
+        const char* want = playing ? "Pause" : "Play";
+        if (std::strcmp(b->GetLabelStr(), want) != 0) {
+            b->SetLabelStr(want);
+            b->SetDirty(false);
+        }
+    }
+    if (auto* bar = dynamic_cast<TransportBarControl*>(g->GetControlWithTag(kTagPreviewPosition)))
+        bar->setPosition(dur > 0.0 ? pos / dur : 0.0, hasFile);
+    if (auto* t = dynamic_cast<ITextControl*>(g->GetControlWithTag(kTagPreviewTime))) {
+        const std::string txt = hasFile ? formatTime(pos) + " / " + formatTime(dur) : "-:--.- / -:--.-";
+        if (std::strcmp(t->GetStr(), txt.c_str()) != 0)
+            t->SetStr(txt.c_str());
+    }
+    if (auto* t = dynamic_cast<ITextControl*>(g->GetControlWithTag(kTagPreviewInfo))) {
+        const char* want = hasFile ? previewFileText_.c_str() : "no file loaded";
+        if (std::strcmp(t->GetStr(), want) != 0)
+            t->SetStr(want);
+    }
+    if (playing != previewWasPlaying_) {
+        previewWasPlaying_ = playing;
+        if (auto* t = dynamic_cast<ITextControl*>(g->GetControlWithTag(kTagSource))) {
+            t->SetText(uiText(11.f, playing ? theme().accent : theme().textDim, EAlign::Far));
+            t->SetStr(playing ? "SOURCE: FILE PREVIEW" : "SOURCE: LIVE INPUT");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1006,6 +1129,52 @@ void RaDiffVoiceApp::layoutFileBar(IGraphics* g, const IRECT& bounds) {
     g->AttachControl(new ITextControl(IRECT(x, row2.T, row2.R, row2.B), result_.c_str(), uiText(11.f, t.textDim, EAlign::Near)), kTagResult);
 }
 
+void RaDiffVoiceApp::layoutPreviewBar(IGraphics* g, const IRECT& bounds) {
+    const Theme& t = theme();
+    g->AttachControl(new PanelControl(bounds, t.panel, 5.f));
+    const IRECT row = bounds.GetPadded(-10.f, -8.f, -10.f, -8.f);
+    float x = row.L;
+    g->AttachControl(new ITextControl(IRECT(x, row.T, x + 64.f, row.B), "PREVIEW", uiText(11.f, t.textDim, EAlign::Near)));
+    x += 64.f;
+    auto button = [&](float w, const char* s, IActionFunction fn, int tag, const char* tip) {
+        auto* b = new IVButtonControl(IRECT(x, row.T, x + w, row.B), std::move(fn), s, buttonStyle(), true, false);
+        b->SetTooltip(tip);
+        g->AttachControl(b, tag);
+        x += w + 6.f;
+        return b;
+    };
+    button(70.f, "Load\xE2\x80\xA6", [this](IControl*) { previewLoadDialog(); }, kNoTag,
+           "Load a WAV file for preview (choosing an Input file below loads it here too)");
+    button(70.f, "Play", [this](IControl*) {
+        if (!player_.hasFile()) {
+            if (!fileIn_.empty())
+                previewLoad(fileIn_);
+            else
+                previewLoadDialog();
+        }
+        if (player_.hasFile())
+            player_.togglePlay();
+        pollPreview();
+    }, kTagPreviewPlay, "Play / pause the loaded file through the live engine (replaces the microphone while playing)");
+    button(60.f, "Stop", [this](IControl*) { player_.stop(); pollPreview(); }, kNoTag, "Stop and rewind");
+    {
+        auto* loop = new IVToggleControl(IRECT(x, row.T, x + 70.f, row.B), [this](IControl* c) { player_.setLooping(c->GetValue() > 0.5); },
+                                         "", toggleStyle().WithShowLabel(false), "LOOP OFF", "LOOP ON", false);
+        loop->SetTooltip("Repeat the file until Stop");
+        g->AttachControl(loop, kTagPreviewLoop);
+        x += 70.f + 10.f;
+    }
+    const float timeW = 118.f, infoW = 300.f, sourceW = 170.f;
+    const IRECT barR(x, row.T, row.R - timeW - infoW - sourceW - 3 * 10.f, row.B);
+    g->AttachControl(new TransportBarControl(barR, [this](double f) { player_.seek(f); pollPreview(); }), kTagPreviewPosition);
+    x = barR.R + 10.f;
+    g->AttachControl(new ITextControl(IRECT(x, row.T, x + timeW, row.B), "-:--.- / -:--.-", uiText(11.f, t.text, EAlign::Near)), kTagPreviewTime);
+    x += timeW + 10.f;
+    g->AttachControl(new ITextControl(IRECT(x, row.T, x + infoW, row.B), "no file loaded", uiText(11.f, t.textDim, EAlign::Near)), kTagPreviewInfo);
+    x += infoW + 10.f;
+    g->AttachControl(new ITextControl(IRECT(x, row.T, row.R, row.B), "SOURCE: LIVE INPUT", uiText(11.f, t.textDim, EAlign::Far)), kTagSource);
+}
+
 void RaDiffVoiceApp::layout(IGraphics* g) {
     if (g->NControls() > 0)
         g->RemoveAllControls();
@@ -1022,7 +1191,8 @@ void RaDiffVoiceApp::layout(IGraphics* g) {
     const IRECT header(kMargin, kMargin, b.R - kMargin, kMargin + kHeaderH);
     const float bodyTop = header.B + kGap;
     const IRECT fileBar(kMargin, b.B - kMargin - kFileBarH, b.R - kMargin, b.B - kMargin);
-    const float bodyBottom = fileBar.T - kGap;
+    const IRECT previewBar(kMargin, fileBar.T - kGap - kPreviewBarH, b.R - kMargin, fileBar.T - kGap);
+    const float bodyBottom = previewBar.T - kGap;
     const IRECT rightCol(b.R - kMargin - kRightColW, bodyTop, b.R - kMargin, bodyBottom);
     const IRECT body(kMargin, bodyTop, rightCol.L - kGap, bodyBottom);
 
@@ -1060,6 +1230,7 @@ void RaDiffVoiceApp::layout(IGraphics* g) {
     layoutModulePanel(g, output, Module::Output, 1, 72.f);
     layoutModulePanel(g, enhancer, Module::Presence, 2, (enhancer.H() - kTitleH - 8.f) / 3.f);
 
+    layoutPreviewBar(g, previewBar);
     layoutFileBar(g, fileBar);
     g->AttachControl(new SnapshotControl(b), kTagSnapshot); // last: draws nothing unless asked
 
@@ -1070,4 +1241,6 @@ void RaDiffVoiceApp::layout(IGraphics* g) {
         p->setPath(fileOut_.empty() ? "" : platform::pathToUtf8(fileOut_));
     eqCurveDirty_ = true;
     refreshPresetHeader();
+    previewWasPlaying_ = !player_.isPlaying(); // force the SOURCE text to refresh
+    pollPreview();
 }
