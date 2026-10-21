@@ -27,7 +27,9 @@ struct LevelAnalysis {
 /// is the speech level. Long pauses, room tone and breaths therefore do not pull it down.
 ///
 /// Feed any number of blocks with process(); result() may be called at any time.
-/// Allocation-free after prepare(); fine to run on an audio thread but intended for offline use.
+/// Allocation-free after prepare() and safe on the audio thread. With setForgetting(seconds)
+/// the frame histogram decays exponentially (time constant = `seconds`), which turns the same
+/// gated measurement into an online tracker of the recent speech level (Engine::setSpeechTracking).
 class LevelAnalyzer {
 public:
     static constexpr double kFrameMs = 10.0;
@@ -37,6 +39,10 @@ public:
 
     void prepare(double sampleRate, std::size_t numChannels) noexcept;
     void reset() noexcept;
+    /// 0 = remember everything (offline analysis). > 0 = exponential forgetting with this time
+    /// constant in seconds; activeSeconds then reports effective (decayed) seconds.
+    void setForgetting(double seconds) noexcept;
+    [[nodiscard]] double forgetting() const noexcept { return forgetSeconds_; }
     void process(ConstAudioView audio) noexcept;
     [[nodiscard]] LevelAnalysis result() const noexcept;
 
@@ -48,9 +54,11 @@ private:
     std::size_t frameSamples_ = 480, inFrame_ = 0;
     double frameEnergy_ = 0.0; ///< sum of squares over channels (max channel used)
     std::array<double, 2> chEnergy_{};
-    std::array<std::uint64_t, kBins> histogram_{};
-    std::uint64_t totalFrames_ = 0, totalSamples_ = 0;
+    std::array<double, kBins> histogram_{}; ///< (decayed) frame counts per 0.25 dB bin
+    double totalFrames_ = 0.0;
+    std::uint64_t totalSamples_ = 0;
     double peak_ = 0.0;
+    double forgetSeconds_ = 0.0, decay_ = 1.0;
 };
 
 } // namespace radiff::core

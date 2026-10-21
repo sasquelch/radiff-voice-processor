@@ -47,6 +47,21 @@ namespace design {
     return {(1.0 + cw) / 2.0 / a0, -(1.0 + cw) / a0, (1.0 + cw) / 2.0 / a0, -2.0 * cw / a0, (1.0 - alpha) / a0};
 }
 
+/// Constant 0 dB peak-gain band-pass (RBJ "BPF, constant 0 dB peak gain").
+[[nodiscard]] inline BiquadCoeffs bandPass(double fs, double hz, double q) noexcept {
+    hz = safeFrequency(hz, fs);
+    q = std::clamp(q, 0.05, 20.0);
+    const double w0 = 2.0 * kPi * hz / fs, cw = std::cos(w0), alpha = std::sin(w0) / (2.0 * q);
+    const double a0 = 1.0 + alpha;
+    return {alpha / a0, 0.0, -alpha / a0, -2.0 * cw / a0, (1.0 - alpha) / a0};
+}
+
+/// Q of a band-pass/peaking filter whose -3 dB bandwidth is `octaves` wide (RBJ relation).
+[[nodiscard]] inline double qFromBandwidthOctaves(double octaves) noexcept {
+    octaves = std::clamp(octaves, 0.05, 10.0);
+    return 1.0 / (2.0 * std::sinh(0.5 * std::log(2.0) * octaves));
+}
+
 [[nodiscard]] inline BiquadCoeffs peaking(double fs, double hz, double gainDb, double q) noexcept {
     hz = safeFrequency(hz, fs);
     q = std::clamp(q, 0.05, 20.0);

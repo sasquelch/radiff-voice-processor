@@ -17,9 +17,12 @@ verification matrix and [MASTER_DEVELOPMENT_SPEC.md](MASTER_DEVELOPMENT_SPEC.md)
 authoritative specification.
 
 **Processing chain (v1):** input trim → DC blocker → 12/24 dB/oct high-pass → 5-band EQ →
-speech-preserving downward expander (soft knee, hysteresis, hold, lookahead, hard attenuation
-cap) → leveling compressor → density compressor → output trim. De-esser, multiband expander,
-presence, saturation and limiter follow in Phase 6.
+speech-preserving downward expander (speech-relative threshold, soft knee, hysteresis, hold,
+lookahead, transient rejection, hard attenuation cap) → frequency-selective de-esser →
+leveling compressor → density compressor → presence/enhancer (LF Detail, HF Detail) → output
+trim. Every section of a dbx 286s-class hardware channel strip has a counterpart
+(see the table in [docs/DSP_DESIGN.md](docs/DSP_DESIGN.md)); multiband expander, saturation
+and limiter are still to come.
 
 ## Quick start (macOS)
 

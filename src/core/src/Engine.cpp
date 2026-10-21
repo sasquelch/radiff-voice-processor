@@ -17,15 +17,23 @@ void Engine::prepare(const EngineConfig& config) {
     input_.prepare(config_.sampleRate, config_.numChannels);
     eq_.prepare(config_.sampleRate, config_.numChannels);
     expander_.prepare(config_.sampleRate, config_.numChannels);
+    deesser_.prepare(config_.sampleRate, config_.numChannels);
     comp1_.prepare(config_.sampleRate, config_.numChannels);
     comp2_.prepare(config_.sampleRate, config_.numChannels);
+    presence_.prepare(config_.sampleRate, config_.numChannels);
     outputGain_.prepare(config_.sampleRate, 10.0);
+    tracker_.prepare(config_.sampleRate, config_.numChannels);
+    tracker_.setForgetting(tracking_ ? trackWindowSeconds_ : 0.0);
+    trackInterval_ = std::max<std::size_t>(1, dsp::msToSamples(100.0, config_.sampleRate));
+    trackCounter_ = 0;
+    trackedLevelDb_.reset();
+    trackedLevelAtomic_.store(-1000.0f, std::memory_order_relaxed);
     const std::size_t maxDelay = dsp::msToSamples(modules::Expander::kMaxLookaheadMs, config_.sampleRate) + 1;
     for (auto& d : bypassDelay_)
         d.prepare(maxDelay);
     bypassRamp_.prepare(config_.sampleRate, 10.0);
     dry_.assign(config_.maxBlockFrames * kMaxChannels, 0.0f);
-    expander_.setSpeechLevelDb(speechLevelDb_);
+    pushSpeechLevel();
 
     prepared_ = true;
     paramsDirty_ = true;
@@ -41,8 +49,10 @@ void Engine::reset() noexcept {
     input_.reset();
     eq_.reset();
     expander_.reset();
+    deesser_.reset();
     comp1_.reset();
     comp2_.reset();
+    presence_.reset();
     outputGain_.reset(outputGain_.target());
     for (auto& d : bypassDelay_)
         d.reset();
@@ -52,6 +62,7 @@ void Engine::reset() noexcept {
     for (auto& a : outPeak_)
         a.store(0.0f, std::memory_order_relaxed);
     expGr_.store(0.0f, std::memory_order_relaxed);
+    dsGr_.store(0.0f, std::memory_order_relaxed);
     c1Gr_.store(0.0f, std::memory_order_relaxed);
     c2Gr_.store(0.0f, std::memory_order_relaxed);
 }
@@ -72,7 +83,29 @@ void Engine::setParameters(const ParameterSet& params) noexcept {
 
 void Engine::setSpeechLevelDb(std::optional<double> levelDb) noexcept {
     speechLevelDb_ = levelDb;
-    expander_.setSpeechLevelDb(levelDb);
+    pushSpeechLevel();
+}
+
+void Engine::pushSpeechLevel() noexcept {
+    expander_.setSpeechLevelDb(trackedLevelDb_ ? trackedLevelDb_ : speechLevelDb_);
+}
+
+void Engine::setSpeechTracking(bool enabled, double windowSeconds) noexcept {
+    tracking_ = enabled;
+    trackWindowSeconds_ = std::max(1.0, windowSeconds);
+    tracker_.setForgetting(tracking_ ? trackWindowSeconds_ : 0.0);
+    tracker_.reset();
+    trackCounter_ = 0;
+    trackedLevelDb_.reset();
+    trackedLevelAtomic_.store(-1000.0f, std::memory_order_relaxed);
+    pushSpeechLevel();
+}
+
+std::optional<double> Engine::trackedSpeechLevelDb() const noexcept {
+    const float v = trackedLevelAtomic_.load(std::memory_order_relaxed);
+    if (v < -999.0f)
+        return std::nullopt;
+    return static_cast<double>(v);
 }
 
 void Engine::applyParameters() noexcept {
@@ -82,9 +115,11 @@ void Engine::applyParameters() noexcept {
     input_.update(params_);
     eq_.update(params_);
     expander_.update(params_);
-    expander_.setSpeechLevelDb(speechLevelDb_);
+    pushSpeechLevel();
+    deesser_.update(params_);
     comp1_.update(params_);
     comp2_.update(params_);
+    presence_.update(params_);
     outputGain_.setTarget(dsp::dbToGain(static_cast<double>(params_.get(ParamId::OutputGainDb))));
     latency_ = expander_.latencySamples();
     for (auto& d : bypassDelay_)
@@ -100,6 +135,7 @@ Meters Engine::meters() const noexcept {
         m.outputPeak[c] = outPeak_[c].load(std::memory_order_relaxed);
     }
     m.expanderReductionDb = expGr_.load(std::memory_order_relaxed);
+    m.deesserReductionDb = dsGr_.load(std::memory_order_relaxed);
     m.compressor1ReductionDb = c1Gr_.load(std::memory_order_relaxed);
     m.compressor2ReductionDb = c2Gr_.load(std::memory_order_relaxed);
     return m;
@@ -140,9 +176,24 @@ void Engine::processBlock(AudioView audio) noexcept {
 
     input_.process(audio);
     eq_.process(audio);
+    if (tracking_) {
+        tracker_.process(ConstAudioView{audio.channels, nch, n});
+        trackCounter_ += n;
+        if (trackCounter_ >= trackInterval_) {
+            trackCounter_ = 0;
+            const LevelAnalysis r = tracker_.result();
+            if (r.hasSignal && r.activeSeconds >= kMinTrackedSeconds) {
+                trackedLevelDb_ = r.speechLevelDbfs;
+                trackedLevelAtomic_.store(static_cast<float>(r.speechLevelDbfs), std::memory_order_relaxed);
+                pushSpeechLevel();
+            }
+        }
+    }
     expander_.process(audio);
+    deesser_.process(audio);
     comp1_.process(audio);
     comp2_.process(audio);
+    presence_.process(audio);
 
     // Output trim + bypass crossfade.
     const bool crossfade = !bypassRamp_.isFullyOn();
@@ -167,6 +218,7 @@ void Engine::processBlock(AudioView audio) noexcept {
         outPeak_[c].store(peak, std::memory_order_relaxed);
     }
     expGr_.store(expander_.lastGainReductionDb(), std::memory_order_relaxed);
+    dsGr_.store(deesser_.lastGainReductionDb(), std::memory_order_relaxed);
     c1Gr_.store(comp1_.lastGainReductionDb(), std::memory_order_relaxed);
     c2Gr_.store(comp2_.lastGainReductionDb(), std::memory_order_relaxed);
 }

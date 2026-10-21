@@ -42,3 +42,6 @@ Thumbs.db
 # Local scratch
 /tmp/
 /scratch/
+
+# Claude Code agent worktrees
+.claude/worktrees/

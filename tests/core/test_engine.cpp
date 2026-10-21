@@ -239,3 +239,62 @@ TEST_CASE("engine: speech level drives the relative expander threshold; latency 
     test::processInBlocks(out, 256, [&](core::AudioView v) { e.process(v); });
     CHECK(test::maxAbsDiff(in, out, 384) == 0.0f);
 }
+
+TEST_CASE("online speech tracking drives the speech-relative threshold in realtime hosts") {
+    core::Engine e;
+    e.prepare({48000.0, 480, 1});
+    core::ParameterSet p;
+    p.set(ParamId::ExpThresholdMode, static_cast<float>(core::ThresholdMode::SpeechRelative));
+    p.set(ParamId::ExpRelativeThresholdDb, -16.0f);
+    e.setParameters(p);
+    e.setSpeechTracking(true, 10.0);
+    CHECK(e.expander().effectiveThresholdDb() == doctest::Approx(-48.0)); // absolute until measured
+    CHECK_FALSE(e.trackedSpeechLevelDb().has_value());
+
+    auto feed = [&](double rmsDb, double seconds) {
+        auto b = test::sineRms(1, 48000, 48000.0, 1000.0, rmsDb);
+        for (int s = 0; s < static_cast<int>(seconds); ++s) {
+            auto copy = b;
+            test::processInBlocks(copy, 480, [&](core::AudioView v) { e.process(v); });
+        }
+    };
+    feed(-20.0, 3);
+    REQUIRE(e.trackedSpeechLevelDb().has_value());
+    CHECK(*e.trackedSpeechLevelDb() == doctest::Approx(-20.0).epsilon(0.02));
+    CHECK(e.expander().effectiveThresholdDb() == doctest::Approx(-36.0).epsilon(0.01));
+
+    // A parameter change must not clobber the tracked level.
+    p.set(ParamId::ExpRatio, 3.0f);
+    e.setParameters(p);
+    CHECK(e.expander().effectiveThresholdDb() == doctest::Approx(-36.0).epsilon(0.01));
+
+    // The tracker forgets: after 60 s at -30 dBFS (6 time constants) it has followed.
+    feed(-30.0, 60);
+    CHECK(*e.trackedSpeechLevelDb() == doctest::Approx(-30.0).epsilon(0.04));
+    CHECK(e.expander().effectiveThresholdDb() == doctest::Approx(-46.0).epsilon(0.03));
+
+    // Disabling tracking falls back to the host value / absolute threshold.
+    e.setSpeechTracking(false);
+    CHECK(e.expander().effectiveThresholdDb() == doctest::Approx(-48.0));
+    e.setSpeechLevelDb(-25.0);
+    CHECK(e.expander().effectiveThresholdDb() == doctest::Approx(-41.0));
+}
+
+TEST_CASE("de-esser and enhancer are in the engine chain and meter") {
+    core::Engine e;
+    e.prepare({48000.0, 512, 1});
+    core::ParameterSet p;
+    p.set(ParamId::ExpEnabled, false);
+    p.set(ParamId::Comp1Enabled, false);
+    p.set(ParamId::DeessEnabled, true);
+    p.set(ParamId::DeessThresholdDbfs, -60.0f);
+    p.set(ParamId::DeessMaxReductionDb, 6.0f);
+    p.set(ParamId::PresEnabled, true);
+    p.set(ParamId::PresMakeupGainDb, -3.0f);
+    e.setParameters(p);
+    auto b = test::sineRms(1, 48000, 48000.0, 6000.0, -20.0);
+    test::processInBlocks(b, 512, [&](core::AudioView v) { e.process(v); });
+    // 6 dB from the de-esser band reduction, 3 dB enhancer makeup.
+    CHECK(test::toneLevelDb(b, 0, 24000, 48000, 48000.0, 6000.0) == doctest::Approx(-29.0).epsilon(0.02));
+    CHECK(e.meters().deesserReductionDb == doctest::Approx(6.0).epsilon(0.02));
+}

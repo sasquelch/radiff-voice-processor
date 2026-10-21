@@ -51,6 +51,23 @@ inline double maxStep(const core::AudioBuffer& b, std::size_t ch, std::size_t st
     return m;
 }
 
+/// RMS-equivalent level (dBFS) of the sinusoidal component at `hz` in frames [start, end),
+/// by rectangular-window DFT correlation. Exact when the range holds a whole number of cycles
+/// of every tone present (e.g. 24000 frames at 48 kHz for 300 Hz and 10 kHz).
+inline double toneLevelDb(const core::AudioBuffer& b, std::size_t ch, std::size_t start, std::size_t end, double fs,
+                          double hz) {
+    double re = 0.0, im = 0.0;
+    for (std::size_t i = start; i < end; ++i) {
+        const double w = 2.0 * kPi * hz * static_cast<double>(i) / fs;
+        const double x = static_cast<double>(b.channel(ch)[i]);
+        re += x * std::cos(w);
+        im -= x * std::sin(w);
+    }
+    const double n = static_cast<double>(end - start);
+    const double peak = 2.0 * std::sqrt(re * re + im * im) / n;
+    return peak > 1e-15 ? 20.0 * std::log10(peak / std::sqrt(2.0)) : -300.0;
+}
+
 inline bool allFinite(const core::AudioBuffer& b) {
     for (std::size_t c = 0; c < b.numChannels(); ++c)
         for (float v : b.channel(c))

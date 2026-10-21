@@ -12,11 +12,13 @@ compressor 1 + 2.** Listening round 1 (owner: clicks + breaths audible) led to t
 speech-relative expander threshold (analysis pass, `Engine::setSpeechLevelDb`), transient
 rejection and re-tuned presets; round 2: the owner approved the **medium** tier (= Balanced
 preset defaults), so the factory presets stay as they are.
-Next: Phase 3 remainder (CLI options `--sample-rate`, `--channels`, `--log`, dither on
-bit-depth reduction), then Phase 4 standalone GUI (iPlug2), which needs an online speech-level
-tracker for live input (offline file mode already has the two-pass analysis).
-Phase 6 stages (de-esser, multiband expander, presence, saturation, limiter) are not implemented
-and have no placeholder parameters.
+**Phase 6 (partial, 2026-10-21):** de-esser (`modules/Deesser`), presence/enhancer with LF/HF
+Detail (`modules/Presence`), compressor `autoMakeup`, and `Engine::setSpeechTracking()` (online
+speech level for live input) exist with tests; all OFF in factory presets. The owner asked for
+every dbx 286s control to have a counterpart: the mapping table is in docs/DSP_DESIGN.md.
+Multiband expander, saturation and limiter are not implemented and have no placeholder parameters.
+Next: Phase 4 standalone GUI (iPlug2) with every parameter and preset save/load, then Phase 3
+remainder (`--sample-rate`, `--channels`, `--log`, dither).
 
 ## Build and test (macOS, the development machine)
 

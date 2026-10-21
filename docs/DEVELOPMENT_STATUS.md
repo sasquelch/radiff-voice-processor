@@ -1,6 +1,6 @@
 # Development status
 
-Updated 2026-10-21 after Phase 2 and the first listening round. Compilation alone is never counted as "working".
+Updated 2026-10-21 after listening round 2 and the first Phase 6 stages. Compilation alone is never counted as "working".
 Spec phases: see MASTER_DEVELOPMENT_SPEC.md §13.
 
 ## Phase progress
@@ -12,7 +12,7 @@ Spec phases: see MASTER_DEVELOPMENT_SPEC.md §13.
 | 3 CLI, WAV I/O, presets | **Mostly done:** full nested `.radvoice.json` schema with validation/warnings, 10 factory presets, `--set`, `--format/--bit-depth`, `--overwrite`, `--json-result`, `--verbose`, `--analyze-only` (speech level, noise floor, peak, resolved threshold), exit codes 0/2/3/4/5/6/7/8/70, latency compensation, silence validation. **Open:** `--sample-rate`, `--channels`, `--log`, dither when reducing bit depth, Windows compilation. |
 | 4 Standalone GUI | Not started (iPlug2 pinned; `src/standalone`, `src/ui` placeholders). |
 | 5 VST3 / AUv2 | Not started (VST3 SDK 3.8.1 pinned; `src/plugins/*` placeholders). |
-| 6 Advanced processing | Not started: de-esser, multiband expander, presence, saturation, limiter. No placeholder parameters exist; presets referencing them load with warnings. |
+| 6 Advanced processing | **Partly done (2026-10-21):** frequency-selective de-esser and presence/enhancer (LF Detail, HF Detail with program-dependent back-off) implemented with tests; compressor auto makeup; online speech-level tracker for realtime hosts. All OFF in factory presets until heard. **Open:** multiband expander, saturation, limiter (no placeholder parameters; presets referencing them load with warnings). |
 | 7 PlayoutONE integration | Not started. |
 | 8 Release | Not started. |
 
@@ -43,9 +43,9 @@ Legend: ✅ verified · 🟡 built but not executed · ⬜ not yet · — n/a
 - **No GUI yet** (Phase 4 not started): settings are adjusted only through `--set` and
   `.radvoice.json` files. The owner asked for a UI on 2026-10-21; it is the next milestone after
   the Phase 3 leftovers.
-- **Realtime hosts** (standalone live input, plug-ins) do not yet have an online speech-level
-  tracker; until Phase 4/5 adds one, `speechRelative` presets fall back to the absolute
-  threshold there. The offline path (CLI, file mode) is complete.
+- **Realtime hosts** now have `Engine::setSpeechTracking()` (gated level with 20 s forgetting,
+  tested with tones); it has not yet been heard on live speech, and the first second of a
+  session uses the absolute threshold. The offline path (CLI, file mode) is complete.
 - **No limiter yet**: presets must keep headroom by themselves; CHR preset makeup was removed
   after a full-scale source reached 0 dBFS.
 - x86_64 slice untested locally (install Rosetta 2 with `softwareupdate --install-rosetta` to run it).
@@ -53,7 +53,8 @@ Legend: ✅ verified · 🟡 built but not executed · ⬜ not yet · — n/a
 ## Next steps (in order)
 
 1. ~~Listening round 2~~ done: medium tier chosen (2026-10-21).
-2. Finish Phase 3 CLI options (`--sample-rate`, `--channels`, `--log`) and dither.
-3. Phase 4: iPlug2 standalone (macOS first), wiring the shared engine/preset code; the owner wants a UI for the settings.
+2. Phase 4: iPlug2 standalone (macOS first) exposing every parameter and preset load/save (owner request 2026-10-21).
+3. Listening check of de-esser / enhancer on real voice; decide whether any factory preset enables them.
+4. Finish Phase 3 CLI options (`--sample-rate`, `--channels`, `--log`) and dither.
 4. Phase 5: VST3 + AU wrappers, validator/auval, REAPER/Audition hands-on.
-5. Phase 6 stages with tests before any factory preset enables them.
+5. Remaining Phase 6 stages (multiband expander, saturation, limiter) with tests before any factory preset enables them.

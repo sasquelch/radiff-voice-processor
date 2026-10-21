@@ -4,6 +4,56 @@ Only results that were actually executed are recorded here, with the environment
 Environment for all entries unless stated: Apple M1 Max, macOS 27.0.1, Xcode 27.1
 (Apple clang 21.0.0), CMake 4.4.3, Ninja 1.13.2, repository commit as of the entry date.
 
+## 2026-10-21 — Phase 6 (part 1): de-esser, enhancer, auto makeup, online speech tracker
+
+Added after the owner asked for every dbx 286s control to have a counterpart. All new stages
+default OFF, so the audible chain of the approved medium tier is unchanged (algorithm version
+stays 1; factory presets regenerated only to carry the new keys).
+
+### Automated suites
+
+| Preset | Result |
+|---|---|
+| mac-debug | 33/33 CTest; `test_core` 73 cases / 4841 assertions |
+| mac-asan (Address + UB sanitizers) | 33/33, no reports |
+| mac-release | 33/33 |
+
+New deterministic tests: `test_deesser.cpp` (band reduced by exactly the cap at the centre
+frequency, 1 kHz untouched < 0.1 dB, static curve knee/cap values, 0.5 ms attack reaches the
+cap within 5 ms, 20 ms release decays below 0.1 dB in 100 ms, listen = band only, stereo link),
+`test_presence.cpp` (LF/HF shelf gains match the designed response, dynamic HF back-off < 0.5 dB
+on a lone 10 kHz tone and full boost under a dominant low tone, half sensitivity = 4 dB,
+makeup, bit-exact off, click-free enable), compressor auto makeup (−20 → −20, −40 → −35 at
+threshold −30 2:1), engine chain/meter, online tracking (−36 dBFS threshold within 3 s, follows
+a 10 dB drop within six time constants, parameter changes do not reset it, disable restores
+the host value), preset format (old six-module `signalOrder` loads, `listen` never persisted,
+`deesser.bandwidthOctaves` path parses).
+
+### Real voice (TOM0010679, Balanced preset, Release CLI; 10 ms Hann frames)
+
+Sibilant frames = speech frames with > 50 % of their energy in 4–10 kHz (101 frames);
+vowel-like = < 10 % (1440 frames).
+
+| Setting | 4–10 kHz, sibilant frames | 4–10 kHz, vowel frames | 300 Hz–3 kHz, sibilant | wideband, vowel |
+|---|---|---|---|---|
+| De-esser 6 kHz, 1 oct, threshold −30 dBFS, cap 6 dB | **−3.2 dB** mean (min −4.5) | −1.5 dB | −0.1 dB | −0.02 dB |
+
+| Setting | 60–200 Hz, speech | 4–12 kHz, vowel frames | 4–12 kHz, sibilant frames | 300 Hz–3 kHz |
+|---|---|---|---|---|
+| Enhancer LF Detail 4, HF Detail 6, hfDynamic 0.5 | +0.4 dB | **+3.8 dB** | +2.7 dB (backed off) | +0.1 dB |
+
+Reading: the de-esser takes about half its cap off the esses at this threshold (the band peaks
+sit in the soft knee), leaves the vowel body untouched and spills 1.5 dB into the high band of
+neighbouring vowel frames through its 60 ms release. The enhancer's dynamic back-off gives
+sibilant frames 1 dB less boost than vowels; it is tone shaping, not loudness. Renders for
+listening: `~/Desktop/RaDiff-Listening/C-deesser-6k-6dB-*`, `C-enhancer-lf4-hf6-*` and
+`C-deesser-LISTEN-band-only-*` (the detection band alone). **Not yet heard by the owner**;
+no factory preset enables either stage.
+
+### Not verified
+
+Live-input behaviour of the speech tracker on real speech (tones only so far); Windows build.
+
 ## 2026-10-21 — Listening round 1: "mouse clicks and heavy breathing in all samples"
 
 **Finding (owner, by ear, on the Phase 2 renders):** mouse clicks and breaths audible in every

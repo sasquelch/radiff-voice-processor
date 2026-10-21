@@ -173,3 +173,19 @@ TEST_CASE("sidechain high-pass, wet mix, peak detector and compressor 2 registry
     q.set(ParamId::Comp2Enabled, false);
     CHECK(steady(q, -8.0, 1, Module::Compressor2) == doctest::Approx(-8.0).epsilon(0.005));
 }
+
+TEST_CASE("auto makeup: a -20 dBFS RMS input leaves at -20 dBFS, nothing hidden below") {
+    auto p = baseline();
+    p.set(ParamId::Comp1ThresholdDbfs, -30.0f);
+    p.set(ParamId::Comp1Ratio, 2.0f); // -20 in -> 5 dB reduction -> auto makeup +5
+    CHECK(steady(p, -20.0) == doctest::Approx(-25.0).epsilon(0.005));
+    p.set(ParamId::Comp1AutoMakeup, true);
+    core::modules::Compressor c;
+    c.prepare(fs, 1);
+    c.update(p);
+    CHECK(c.autoMakeupDb() == doctest::Approx(5.0));
+    CHECK(steady(p, -20.0) == doctest::Approx(-20.0).epsilon(0.005));
+    CHECK(steady(p, -40.0) == doctest::Approx(-35.0).epsilon(0.005)); // below threshold: just the makeup
+    p.set(ParamId::Comp1MakeupGainDb, 2.0f);                           // manual makeup adds on top
+    CHECK(steady(p, -20.0) == doctest::Approx(-18.0).epsilon(0.005));
+}

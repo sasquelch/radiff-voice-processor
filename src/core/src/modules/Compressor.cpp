@@ -11,7 +11,7 @@ Compressor::Compressor(Module which) noexcept {
     ids_ = {id("enabled"),     id("threshold" "Dbfs"), id("ratio"),      id("kneeDb"),
             id("attackMs"),    id("releaseMs"),        id("makeupGainDb"), id("detector"),
             id("rmsWindowMs"), id("sidechainHighPassEnabled"), id("sidechainHighPassHz"), id("autoRelease"),
-            id("wet"),         id("stereoLink")};
+            id("wet"),         id("stereoLink"), id("autoMakeup")};
 }
 
 void Compressor::prepare(double sampleRate, std::size_t numChannels) {
@@ -51,7 +51,9 @@ void Compressor::update(const ParameterSet& p) noexcept {
     scHpOn_ = p.getBool(ids_.scHpEnabled);
     autoRelease_ = p.getBool(ids_.autoRelease);
     releaseMs_ = static_cast<double>(p.get(ids_.release));
-    makeup_.setTarget(dsp::dbToGain(static_cast<double>(p.get(ids_.makeup))));
+    autoMakeup_ = p.getBool(ids_.autoMakeup);
+    autoMakeupDb_ = autoMakeup_ ? -staticGainDb(kAutoMakeupReferenceDb) : 0.0;
+    makeup_.setTarget(dsp::dbToGain(static_cast<double>(p.get(ids_.makeup)) + autoMakeupDb_));
     wet_.setTarget(static_cast<double>(p.get(ids_.wet)));
 
     const auto mode = p.getInt(ids_.detector) == static_cast<int>(DetectorType::Peak) ? dsp::LevelDetector::Mode::Peak

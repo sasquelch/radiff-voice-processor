@@ -7,13 +7,27 @@ double precision. Algorithm version: **1** (`core::kAlgorithmVersion`).
 ## Signal order (v1, fixed)
 
 ```
-input trim → DC blocker → high-pass → 5-band EQ → downward expander → compressor 1 → compressor 2 → output trim
+input trim → DC blocker → high-pass → 5-band EQ → downward expander → de-esser → compressor 1
+→ compressor 2 → presence/enhancer → output trim
 ```
 
-Stages defined by the master specification but not yet implemented (added in Phase 6, each
-with its own tests before it is enabled in any factory preset): multiband expander, de-esser,
-presence, saturation, output limiter. `signalOrder` in presets is validated against the
-implemented chain; unknown future module names are accepted and ignored with a warning.
+Stages defined by the master specification but not yet implemented (each gets its own tests
+before any factory preset enables it): multiband expander, saturation, output limiter.
+`signalOrder` in presets is validated against the implemented chain (files that list fewer
+modules, e.g. written before the de-esser existed, load as long as the modules they do list are
+in this order); unknown future module names are accepted and ignored with a warning.
+
+### Coverage of a hardware channel strip (dbx 286s class)
+
+| Hardware section / control | RaDiff equivalent |
+|---|---|
+| Mic preamp gain, 80 Hz HPF | `input.gainDb` (±24 dB; the preamp itself is your interface), `input.highPassEnabled/Hz/Slope` |
+| +48 V phantom, insert loop | hardware only, no software equivalent |
+| Compressor Drive, Density, bypass, GR meter | `compressor1.thresholdDbfs` + `compressor1.autoMakeup` (Drive = lower threshold with gain compensation), `compressor1.releaseMs` / `autoRelease` (Density), `compressor1.enabled`, `Meters::compressor1ReductionDb`; plus ratio, knee, attack, detector, sidechain HPF, wet, link, and a second compressor |
+| De-esser Frequency (800 Hz–10 kHz), Threshold, bypass | `deesser.frequencyHz` (800 Hz–12 kHz), `deesser.thresholdDbfs`, `deesser.enabled`; plus bandwidth, max reduction, attack/release, listen, stereo link |
+| Enhancer LF Detail, HF Detail, bypass | `presence.lfDetail` (0–10), `presence.hfDetail` (0–10), `presence.enabled`; plus both corner frequencies, `hfDynamic` program dependence, makeup |
+| Expander/Gate Threshold, Ratio, bypass | `expander.thresholdDbfs` or speech-relative mode, `expander.ratio`, `expander.enabled`; plus knee, attack/hold/release, hysteresis, lookahead, attenuation cap, transient rejection, wet, link |
+| Output Gain, Process Bypass, output meter | `output.gainDb`, global `bypass`, `Meters::outputPeak` |
 
 ## Common building blocks (`core/dsp/`)
 
@@ -139,13 +153,59 @@ apply:    gain × makeup (smoothed); output = dry + wet·(processed − dry)
 
 Measured in `tests/core/test_compressor.cpp`: static curve to ±0.01 dB, knee value
 `(1/R−1)·W/8` at threshold, 63 %/37 % points at the attack/release time constants, linked vs
-independent stereo, sidechain HPF, auto-release ordering. There is no automatic makeup gain.
+independent stereo, sidechain HPF, auto-release ordering, auto makeup.
+
+**Auto makeup** (`autoMakeup`, off by default): adds exactly the static gain reduction that a
+−20 dBFS RMS signal receives at the current threshold/ratio/knee, on top of the manual makeup.
+A nominal-level voice therefore leaves at the level it entered when the threshold is lowered
+(the way a hardware "Drive" control behaves). It is a fixed, visible number
+(`Compressor::autoMakeupDb()`), not a level-dependent gain rider; tested: −20 in → −20 out,
+−40 in → −35 out with threshold −30, 2:1.
+
+## De-esser
+
+```
+band   = BPF(frequencyHz, Q from bandwidthOctaves)(x)      RBJ constant-0 dB-peak band-pass
+level  = peak detector(band), 3 ms decay, dBFS; stereoLink → max(L, R)
+reduce = min(maxReductionDb, 1:∞ limiting above thresholdDbfs with a 6 dB quadratic knee)
+smooth = attackMs (more reduction) / releaseMs (less reduction) time constants
+y      = x − (1 − g)·band                                     g = 10^(−reduce/20)
+```
+
+Only the detection band is reduced: at the centre frequency the band-pass has zero phase, so
+the output there is exactly `g·x`; the reduction fades with the band-pass skirt and the rest of
+the spectrum is untouched (tested: 6 kHz band −6 dB while a simultaneous 1 kHz tone moves
+< 0.1 dB). Nothing is ever cut by more than `maxReductionDb` (0–12 dB, factory default 6).
+`listen` outputs the detection band for tuning and is never written to or read from a preset
+file. Off = bit-exact pass-through after a 10 ms crossfade. Tests: `tests/core/test_deesser.cpp`
+(static curve, cap, timing, listen, stereo link, disabled). Factory presets ship with it OFF
+(spec: enable lightly, e.g. 6 kHz / 3 dB, once recordings call for it).
+
+## Presence / enhancer (LF Detail, HF Detail)
+
+Plainly stated, this is tone shaping, not magic:
+
+* **LF Detail** 0–10 → low shelf at `lfFrequencyHz` (default 100 Hz), +0.6 dB per step, Q 0.707.
+* **HF Detail** 0–10 → high shelf at `hfFrequencyHz` (default 3.5 kHz), +0.8 dB per step, Q 0.707.
+* **hfDynamic** 0–1 makes the HF shelf program dependent: the module input's level above
+  `hfFrequencyHz` (2nd-order HPF, 10 ms RMS) is compared with its wideband level; when the high
+  band already dominates (sibilance, mouth clicks, hiss) the boost is scaled down by up to
+  `hfDynamic`×100 %, linearly over the last 12 dB of dominance. The shelf gain is smoothed
+  (30 ms) and the filter re-designed every 32 samples with coefficient ramping (no zipper
+  noise). With `hfDynamic` = 0 it is a static shelf. Detection taps the module input, so the
+  boost never feeds its own detector. Limitation: a click shorter than the 10 ms detector still
+  gets part of the boost, which is one reason the module is OFF in every factory preset.
+* **makeupGainDb**: explicit compensating gain. There is no automatic loudness change.
+
+Tests: `tests/core/test_presence.cpp` (shelf gains against the designed response, dominance
+back-off to < 0.5 dB on a lone 10 kHz tone and full boost under a dominant low tone, half
+sensitivity, makeup, bit-exact off, click-free enable).
 
 ## Metering
 
 `Engine::meters()` returns per-channel input/output block peaks (linear) and the maximum
-reduction (positive dB) applied by the expander, compressor 1 and compressor 2 in the last
-block. Reads are relaxed atomics; UI ballistics are the UI's job.
+reduction (positive dB) applied by the expander, de-esser, compressor 1 and compressor 2 in the
+last block. Reads are relaxed atomics; UI ballistics are the UI's job.
 
 ## Latency and bypass
 
@@ -166,3 +226,18 @@ All state is per-sample; nothing depends on the block length. Tests compare bloc
 `prepare()`, fed block by block, histogram based (0.25 dB bins). It reports duration, sample
 peak, gated speech level, noise floor (energy mean of the quietest 10 % of non-silent frames)
 and active time. The standalone's file panel and `--analyze-only` show these numbers.
+
+### Online speech-level tracking (realtime hosts)
+
+File processing measures the whole file first (two passes). Live input and plug-ins cannot, so
+`Engine::setSpeechTracking(true, windowSeconds)` runs the same gated measurement on the post-EQ
+signal with exponential forgetting (`LevelAnalyzer::setForgetting`, default time constant
+20 s). Every 100 ms, once at least 1 s of gated speech has been heard, the expander's
+speech-relative threshold follows the tracked level; before that the host-supplied value or the
+absolute threshold applies. Because the gating keeps pauses, breaths and room tone out of the
+histogram, the tracked level does not sink during silence, and a parameter change never resets
+it. Tested in `tests/core/test_engine.cpp`: −20 dBFS speech-like tone → threshold −36 within
+3 s with `relativeThresholdDb` −16; a drop to −30 dBFS is followed within six time constants;
+disabling tracking restores the host value. The forgetting makes the first second after a big
+level change tolerant rather than instantaneous, which is intended: a shouted word should not
+move the gate.

@@ -13,6 +13,8 @@ add_library(radiff_core STATIC
     src/modules/Equalizer.cpp
     src/modules/Expander.cpp
     src/modules/Compressor.cpp
+    src/modules/Deesser.cpp
+    src/modules/Presence.cpp
 )
 add_library(radiff::core ALIAS radiff_core)
 
