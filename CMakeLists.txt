@@ -35,7 +35,8 @@ if(RADIFF_BUILD_CLI)
 endif()
 
 if(RADIFF_BUILD_STANDALONE)
-    add_subdirectory(src/standalone)   # Phase 5
+    add_subdirectory(src/ui)           # radiff::ui - toolkit-independent GUI helpers (presets, jobs)
+    add_subdirectory(src/standalone)   # Phase 4: iPlug2 standalone app (macOS + Windows), APP format only
 endif()
 
 if(RADIFF_BUILD_VST3)

@@ -3,7 +3,12 @@
 
 option(RADIFF_BUILD_CLI        "Build the headless RaDiffVoiceCLI processor" ON)
 option(RADIFF_BUILD_TESTS      "Build unit and integration tests"            ON)
-option(RADIFF_BUILD_STANDALONE "Build the standalone GUI application (Phase 5)" OFF)
+if(APPLE OR WIN32)
+    set(RADIFF_STANDALONE_DEFAULT ON)
+else()
+    set(RADIFF_STANDALONE_DEFAULT OFF)   # iPlug2 has no Linux desktop backend
+endif()
+option(RADIFF_BUILD_STANDALONE "Build the standalone GUI application (Phase 4, iPlug2)" ${RADIFF_STANDALONE_DEFAULT})
 option(RADIFF_BUILD_VST3       "Build the VST3 plug-in (Phase 6)"               OFF)
 option(RADIFF_BUILD_AU         "Build the AUv2 plug-in, macOS only (Phase 6)"   OFF)
 option(RADIFF_WARNINGS_AS_ERRORS "Treat compiler warnings as errors"            ON)

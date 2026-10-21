@@ -28,4 +28,12 @@ namespace radiff::platform {
 /// Temporary directory suitable for scratch files.
 [[nodiscard]] std::filesystem::path temporaryDirectory();
 
+/// Directory holding the read-only resources shipped with the running executable
+/// (bundled factory presets, fonts):
+///   macOS:   <App>.app/Contents/Resources (the main bundle); for a plain executable, its directory
+///   Windows: the directory of the running executable
+///   Linux:   the directory of the running executable
+/// Empty if it cannot be determined.
+[[nodiscard]] std::filesystem::path bundledResourceDirectory();
+
 } // namespace radiff::platform
