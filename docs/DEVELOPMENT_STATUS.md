@@ -38,9 +38,10 @@ Legend: ✅ verified · 🟡 built but not executed · ⬜ not yet · — n/a
   Windows code path (UTF-16 paths, `ReplaceFileW`, `CommandLineToArgvW`, `CreateProcessW`) is unverified.
 - **Listening approval** is a release gate (spec §2). Round 1 found clicks and breaths; the
   cause (absolute −48 dBFS threshold far below real breath levels, gate open during hold) is
-  fixed. Round 2: the owner chose the medium tier, which is the Balanced-preset default.
-  Accepted limitation: clicks inside the hold/release right after a word get 6–8 dB, not the cap.
-  The full chain must be heard again once Phase 6 stages exist.
+  fixed. Round 2: the owner chose the medium tier, which is the Balanced-preset default, but
+  still heard mouse clicks: those are sub-millisecond and sit in the hold/release, so a per-sample
+  click ducker (`expander.clickDuckDb`, on in all factory presets) was added; renders
+  `D-medium-clickduck-*` await round 3. The full chain must be heard again once Phase 6 is complete.
 - **GUI** exists for macOS (Phase 4 first version); file dialogs, the preset popup and the
   Save As/Delete flows were exercised in code and by the preset-library test, not yet by a
   person clicking through them. The app is unsigned (Gatekeeper: right-click → Open).

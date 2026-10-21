@@ -36,8 +36,21 @@ namespace radiff::core::modules {
 /// (the gain is already opening when the onset reaches the output). Rejection only ever
 /// affects material below the threshold; an open expander is unaffected.
 ///
+/// Click ducking (`clickDuckDb` > 0): mouse and keyboard clicks are far shorter (< 1 ms) than any
+/// level detector's window, so the gate's own detectors hardly see them, and inside the hold /
+/// release after a word the gate is open anyway. The ducker watches the sample peak: a sample
+/// that jumps kClickCrestDb above the fast (2 ms) level of the sample before it, while the main
+/// level is below the threshold (a pause, a hold or a release, never speech), starts an
+/// evaluation. If within kClickEvalMs the peaky stretch stays shorter than kClickMaxMs and the
+/// signal after the last peaky sample has an RMS no higher than 6 dB above the pre-click fast
+/// level (or 30 dB under the click's own peak, so digital silence before the click works too), the stretch (plus 0.5 ms before and
+/// 1 ms after) is ducked by `clickDuckDb` with 0.25 ms ramps, on the delayed audio, so the dip is
+/// centred on the click. Plosive onsets and consonant releases last longer or are followed by
+/// voice, so they fail the evaluation and pass untouched (tested). The internal delay is at least
+/// kClickMinDelayMs while ducking is on.
+///
 /// The delay is ALWAYS applied (even when the module is disabled) so that the reported latency
-/// only depends on the lookahead/transient-reject parameters, never on enable state.
+/// only depends on the lookahead / transient-reject / click-duck parameters, never on enable state.
 class Expander {
 public:
     static constexpr std::size_t kMaxChannels = 2;
@@ -66,6 +79,12 @@ private:
     static constexpr double kVerifyHysteresisDb = 3.0;  ///< ripple tolerance while verifying
     static constexpr double kFreezeMs = 250.0;          ///< max hold of the pre-burst level
     static constexpr double kTrackMs = 20.0;            ///< upward time constant of the pre-burst tracker
+    static constexpr double kClickCrestDb = 12.0;       ///< sample peak above the preceding fast level
+    static constexpr double kClickMinBelowDb = 10.0;    ///< clicks quieter than threshold-10 dB are ignored
+    static constexpr double kClickEvalMs = 6.0;         ///< decision window after the first peaky sample
+    static constexpr double kClickMaxMs = 4.0;          ///< longer peaky stretches are consonants
+    static constexpr double kClickPreMs = 0.5, kClickPostMs = 1.0, kClickRampMs = 0.25;
+    static constexpr double kClickMinDelayMs = 8.0;
 
     struct ChannelState {
         dsp::LevelDetector detector, fastDetector;
@@ -81,9 +100,22 @@ private:
         bool lastAbove = false;
         std::size_t freezeRemaining = 0; ///< samples left holding closedLevelDb after an unverified burst
         double closedLevelDb = -144.0;   ///< level that preceded the current/last burst
+        // click ducker
+        std::uint64_t t = 0;             ///< input sample counter
+        double fastPrev = -200.0;        ///< fast level of the previous sample
+        bool evaluating = false;
+        std::uint64_t clickStart = 0, clickEnd = 0;
+        std::size_t evalRemaining = 0;
+        double preLevelDb = -200.0, clickPeakDb = -200.0;
+        double postEnergy = 0.0;      ///< sum of squares after the last peaky sample
+        std::size_t postCount = 0;
+        struct Dip { std::uint64_t a = 0, b = 0; bool active = false; };
+        std::array<Dip, 4> dips{};
     };
 
     [[nodiscard]] inline double targetGainFor(ChannelState& s, double levelDb, double fastDb) noexcept;
+    /// Advances the click ducker by one input sample; returns the duck (<= 0 dB) for the output sample.
+    [[nodiscard]] inline double clickDuckFor(ChannelState& s, double peakAbs, double fastDb, double levelDb) noexcept;
     void resolveThreshold() noexcept;
 
     double sampleRate_ = 48000.0;
@@ -99,6 +131,8 @@ private:
     std::size_t holdSamples_ = 0, lookaheadSamples_ = 0, rejectSamples_ = 0, delaySamples_ = 0, freezeSamples_ = 0;
     std::size_t verifySamples_ = 0; ///< flags needed within the ring to open (2/3 of rejectSamples_)
     double trackCoef_ = 0.0;
+    double clickDuckDb_ = 0.0;
+    std::size_t clickPre_ = 0, clickPost_ = 0, clickRamp_ = 1, clickEval_ = 0, clickMax_ = 0;
     float lastGrDb_ = 0.0f;
     bool firstUpdate_ = true;
 };

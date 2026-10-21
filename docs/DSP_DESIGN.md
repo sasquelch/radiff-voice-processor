@@ -111,6 +111,36 @@ detector has rung down, so neither the click nor the room tone behind it "pops" 
 Rejection only acts while the expander is closed: clicks inside words or inside the hold/release
 period after a word are **not** removed; that is the spec's "no magical click elimination".
 
+### Click ducking (mouse clicks inside hold and release)
+
+Listening round 2 still had audible mouse clicks. Measured on the raw TOM0010679 take, the
+clicks are shorter than a millisecond with sample peaks of −14 to −37 dBFS: too short for any
+RMS/peak *level* detector (a −23 dBFS click reads −43 dBFS on the 2 ms detector), and the two
+that annoyed most sat 50–150 ms after a word, inside the hold/release where the gate is open on
+purpose. Transient rejection only prevents *opening*; it cannot touch a click while the gate is
+open. So the expander has a third mechanism, `clickDuckDb` (0 = off):
+
+```
+candidate : sample peak >= fast level of the previous sample + 12 dB
+            and sample peak >= threshold - 10 dB           (inaudible clicks are ignored)
+            and main level < threshold                     (a pause, hold or release; never speech)
+evaluate  : for 6 ms: the peaky stretch (samples >= pre-level + 12 dB) must stay <= 4 ms long,
+            and the RMS of what follows it must be <= max(pre-level + 6 dB, click peak - 30 dB)
+duck      : if so, the stretch (0.5 ms before .. 1 ms after) is attenuated by clickDuckDb with
+            0.25 ms ramps, on the delayed audio, so the dip is centred on the click
+```
+
+The decision is made before the click reaches the output because the module delay is at least
+8 ms while ducking is on (`latency = max(lookahead, transientReject, 8 ms)`). Plosive onsets
+(burst followed by voice within the window), consonant releases (longer than 4 ms) and anything
+that happens while the main level is above the threshold fail the evaluation and pass through
+bit-identically (tested). The duck is `min`-combined with the normal gain, so clicks in a closed
+pause still get exactly the cap, never cap + duck. Factory presets set `clickDuckDb` equal to
+their attenuation cap (gentle 12, medium 20, strong 30). Measured on TOM0010679 with the
+Balanced preset: the post-word clicks at 27.87 s and 36.86 s went from −6/−8 dB to −18.5/−20.7 dB;
+nine more sub-5 ms transients in pauses were ducked; speech frames are unchanged except for
+sub-1e-3 compressor-envelope ripple after a dip (`docs/TEST_RESULTS.md`).
+
 ### Key guarantees (all tested in `tests/core/test_expander.cpp`)
 
 - **Attenuation never exceeds `maxAttenuationDb`**: a −75 dBFS floor with a 10 dB cap comes out
@@ -209,7 +239,7 @@ last block. Reads are relaxed atomics; UI ballistics are the UI's job.
 
 ## Latency and bypass
 
-`Engine::latencyFrames()` = max(expander lookahead, transient-reject window) in samples. Full-chain bypass passes the input
+`Engine::latencyFrames()` = max(expander lookahead, transient-reject window, 8 ms when click ducking is on) in samples. Full-chain bypass passes the input
 through an equal delay so bypassed audio stays time-aligned with processed audio and hosts
 need no latency change on bypass. Offline rendering (`app::processFile`) flushes `latency`
 frames of silence and shifts the result so output frame *i* corresponds to input frame *i*

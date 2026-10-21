@@ -28,7 +28,8 @@ plug-ins and the AU plug-in. Schema version **1**.
                  "sidechainHighPassEnabled": false, "sidechainHighPassHz": 100.0,
                  "sidechainLowPassEnabled": false, "sidechainLowPassHz": 8000.0,
                  "lookaheadMs": 15.0, "maxAttenuationDb": 20.0, "wet": 1.0, "stereoLink": true,
-                 "thresholdMode": "speechRelative", "relativeThresholdDb": -12.0, "transientRejectMs": 12.0},
+                 "thresholdMode": "speechRelative", "relativeThresholdDb": -12.0, "transientRejectMs": 12.0,
+                 "clickDuckDb": 20.0},
     "deesser": {"enabled": false, "frequencyHz": 6000.0, "bandwidthOctaves": 1.0, "thresholdDbfs": -30.0,
                 "maxReductionDb": 6.0, "attackMs": 1.0, "releaseMs": 60.0, "listen": false, "stereoLink": true},
     "compressor1": {"enabled": true, "thresholdDbfs": -24.0, "ratio": 2.5, "kneeDb": 6.0, "attackMs": 10.0, "releaseMs": 150.0,
@@ -62,6 +63,8 @@ plug-ins and the AU plug-in. Schema version **1**.
   measured speech level of the recording + `relativeThresholdDb`; the measurement itself is
   made per file by the host and is **not** stored in the preset). Files written before these
   keys existed load unchanged: the defaults are `absolute`, `-15`, `0`.
+- `expander.clickDuckDb` (0–40 dB, default 0 = off) is the attenuation applied to isolated
+  sub-4 ms transients in pauses, hold and release (see docs/DSP_DESIGN.md "Click ducking").
 - The file **never** contains file paths, machine names, sample rates, channel layouts, binary
   blobs or OS-specific data. Operational settings live in CLI arguments, the app session or the
   PlayoutONE wrapper configuration.

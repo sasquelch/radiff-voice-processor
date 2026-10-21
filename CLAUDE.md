@@ -11,7 +11,8 @@ executed test evidence in [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md).
 compressor 1 + 2.** Listening round 1 (owner: clicks + breaths audible) led to the
 speech-relative expander threshold (analysis pass, `Engine::setSpeechLevelDb`), transient
 rejection and re-tuned presets; round 2: the owner approved the **medium** tier (= Balanced
-preset defaults), so the factory presets stay as they are.
+preset defaults) but still heard mouse clicks → per-sample click ducker (`clickDuckDb`, on in
+all factory presets, equal to the cap); round 3 on `~/Desktop/RaDiff-Listening/D-medium-clickduck-*` pending.
 **Phase 6 (partial, 2026-10-21):** de-esser (`modules/Deesser`), presence/enhancer with LF/HF
 Detail (`modules/Presence`), compressor `autoMakeup`, and `Engine::setSpeechTracking()` (online
 speech level for live input) exist with tests; all OFF in factory presets. The owner asked for

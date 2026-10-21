@@ -12,6 +12,11 @@ void Expander::prepare(double sampleRate, std::size_t numChannels) {
     const std::size_t maxDelay = dsp::msToSamples(kMaxLookaheadMs, sampleRate) + 1;
     freezeSamples_ = dsp::msToSamples(kFreezeMs, sampleRate);
     trackCoef_ = 1.0 - dsp::timeConstantCoefficient(kTrackMs, sampleRate);
+    clickPre_ = dsp::msToSamples(kClickPreMs, sampleRate);
+    clickPost_ = dsp::msToSamples(kClickPostMs, sampleRate);
+    clickRamp_ = std::max<std::size_t>(1, dsp::msToSamples(kClickRampMs, sampleRate));
+    clickEval_ = std::max<std::size_t>(1, dsp::msToSamples(kClickEvalMs, sampleRate));
+    clickMax_ = dsp::msToSamples(kClickMaxMs, sampleRate);
     for (auto& s : ch_) {
         s.detector.prepare(sampleRate);
         s.fastDetector.prepare(sampleRate);
@@ -45,6 +50,16 @@ void Expander::reset() noexcept {
         s.lastAbove = false;
         s.freezeRemaining = 0;
         s.closedLevelDb = -144.0;
+        s.t = 0;
+        s.fastPrev = -200.0;
+        s.evaluating = false;
+        s.clickStart = s.clickEnd = 0;
+        s.evalRemaining = 0;
+        s.preLevelDb = s.clickPeakDb = -200.0;
+        s.postEnergy = 0.0;
+        s.postCount = 0;
+        for (auto& d : s.dips)
+            d = ChannelState::Dip{};
     }
     wet_.reset(wet_.target());
     lastGrDb_ = 0.0f;
@@ -87,7 +102,11 @@ void Expander::update(const ParameterSet& p) noexcept {
             s.lastAbove = false;
         }
     }
+    clickDuckDb_ = static_cast<double>(p.get(ParamId::ExpClickDuckDb));
     delaySamples_ = std::max(lookaheadSamples_, rejectSamples_);
+    if (clickDuckDb_ > 0.0)
+        delaySamples_ = std::max(delaySamples_, std::min(dsp::msToSamples(kClickMinDelayMs, sampleRate_),
+                                                         ch_[0].aboveRing.size() - 1));
     link_ = p.getBool(ParamId::ExpStereoLink);
     scHpOn_ = p.getBool(ParamId::ExpSidechainHighPassEnabled);
     scLpOn_ = p.getBool(ParamId::ExpSidechainLowPassEnabled);
@@ -200,11 +219,84 @@ inline double Expander::targetGainFor(ChannelState& s, double levelDb, double fa
     return dsp::expanderGainDb(l, thresholdDb_, ratio_, kneeDb_, maxAttenDb_);
 }
 
+inline double Expander::clickDuckFor(ChannelState& s, double peakAbs, double fastDb, double levelDb) noexcept {
+    ++s.t;
+    if (clickDuckDb_ <= 0.0)
+        return 0.0;
+    const double peakDb = dsp::gainToDb(peakAbs);
+    // 1. Detection / evaluation on the input time line.
+    if (!s.evaluating) {
+        if (peakDb >= s.fastPrev + kClickCrestDb && peakDb >= thresholdDb_ - kClickMinBelowDb && levelDb < thresholdDb_) {
+            s.evaluating = true;
+            s.clickStart = s.clickEnd = s.t;
+            s.evalRemaining = clickEval_;
+            s.preLevelDb = s.fastPrev;
+            s.clickPeakDb = peakDb;
+            s.postEnergy = 0.0;
+            s.postCount = 0;
+        }
+    } else {
+        if (peakDb >= s.preLevelDb + kClickCrestDb) { // still part of the peaky stretch
+            s.clickEnd = s.t;
+            s.clickPeakDb = std::max(s.clickPeakDb, peakDb);
+            s.postEnergy = 0.0;
+            s.postCount = 0;
+        } else {
+            s.postEnergy += peakAbs * peakAbs;
+            ++s.postCount;
+        }
+        if (s.clickEnd - s.clickStart > clickMax_) {
+            s.evaluating = false; // a consonant or an onset, not a click
+        } else if (--s.evalRemaining == 0) {
+            s.evaluating = false;
+            // What follows the peaky stretch must be as quiet as what preceded it (or, over
+            // digital silence, at least 30 dB under the click's own peak): an isolated click.
+            // Anything sustained or followed by voice fails and passes untouched.
+            const double postDb = s.postCount > 0 ? dsp::powerToDb(s.postEnergy / static_cast<double>(s.postCount)) : -200.0;
+            if (s.postCount > 0 && postDb <= std::max(s.preLevelDb + 6.0, s.clickPeakDb - 30.0)) {
+                for (auto& d : s.dips) {
+                    if (!d.active) {
+                        d.a = s.clickStart > clickPre_ ? s.clickStart - clickPre_ : 0;
+                        d.b = s.clickEnd + clickPost_;
+                        d.active = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    s.fastPrev = fastDb;
+    // 2. Duck on the output time line (the audio leaves delaySamples_ later).
+    if (s.t < delaySamples_)
+        return 0.0;
+    const std::uint64_t to = s.t - delaySamples_;
+    double duck = 0.0;
+    for (auto& d : s.dips) {
+        if (!d.active)
+            continue;
+        if (to > d.b + clickRamp_) {
+            d.active = false;
+            continue;
+        }
+        double env = 0.0;
+        if (to + clickRamp_ < d.a)
+            continue; // not yet
+        if (to < d.a)
+            env = static_cast<double>(to + clickRamp_ - d.a) / static_cast<double>(clickRamp_);
+        else if (to <= d.b)
+            env = 1.0;
+        else
+            env = 1.0 - static_cast<double>(to - d.b) / static_cast<double>(clickRamp_);
+        duck = std::min(duck, -clickDuckDb_ * std::clamp(env, 0.0, 1.0));
+    }
+    return duck;
+}
+
 void Expander::process(AudioView audio) noexcept {
     const std::size_t nch = std::min(audio.numChannels, numChannels_);
     float maxGr = 0.0f;
-    std::array<double, kMaxChannels> level{}, fast{};
-    const bool verify = rejectSamples_ > 0;
+    std::array<double, kMaxChannels> level{}, fast{}, peak{};
+    const bool verify = rejectSamples_ > 0 || clickDuckDb_ > 0.0;
 
     for (std::size_t i = 0; i < audio.numFrames; ++i) {
         const double wet = wet_.next();
@@ -217,6 +309,7 @@ void Expander::process(AudioView audio) noexcept {
                 d = ch_[c].scLp.processSample(d);
             level[c] = ch_[c].detector.processSample(d);
             fast[c] = verify ? ch_[c].fastDetector.processSample(d) : level[c];
+            peak[c] = std::fabs(d);
         }
         // 2. Gain computation (linked: one state machine on the louder channel).
         std::array<double, kMaxChannels> gainDb{};
@@ -226,12 +319,14 @@ void Expander::process(AudioView audio) noexcept {
         } else if (link_ && nch > 1) {
             const double l = std::max(level[0], level[1]);
             const double f = std::max(fast[0], fast[1]);
+            const double pk = std::max(peak[0], peak[1]);
             const double target = targetGainFor(ch_[0], l, f);
-            const double g = ch_[0].ballistics.towardsExpander(target);
+            const double g = std::min(ch_[0].ballistics.towardsExpander(target), clickDuckFor(ch_[0], pk, f, l));
             gainDb[0] = gainDb[1] = g;
         } else {
             for (std::size_t c = 0; c < nch; ++c)
-                gainDb[c] = ch_[c].ballistics.towardsExpander(targetGainFor(ch_[c], level[c], fast[c]));
+                gainDb[c] = std::min(ch_[c].ballistics.towardsExpander(targetGainFor(ch_[c], level[c], fast[c])),
+                                     clickDuckFor(ch_[c], peak[c], fast[c], level[c]));
         }
         // 3. Apply to the delayed audio, then wet/dry.
         for (std::size_t c = 0; c < nch; ++c) {

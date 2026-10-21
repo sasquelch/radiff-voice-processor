@@ -118,7 +118,8 @@ enum class ThresholdMode : int { Absolute = 0, SpeechRelative };
     X(PresHfDynamic, Presence, -1, "hfDynamic", "HF Detail Dynamic", Fraction, 0, 1, 0.5, 0, kNoEnum)                    \
     X(PresMakeupGainDb, Presence, -1, "makeupGainDb", "Enhancer Makeup", Decibels, -12, 12, 0, 0, kNoEnum)               \
     X(Comp1AutoMakeup, Compressor1, -1, "autoMakeup", "Comp 1 Auto Makeup", Boolean, 0, 1, 0, 1, kNoEnum)                \
-    X(Comp2AutoMakeup, Compressor2, -1, "autoMakeup", "Comp 2 Auto Makeup", Boolean, 0, 1, 0, 1, kNoEnum)
+    X(Comp2AutoMakeup, Compressor2, -1, "autoMakeup", "Comp 2 Auto Makeup", Boolean, 0, 1, 0, 1, kNoEnum)                \
+    X(ExpClickDuckDb, Expander, -1, "clickDuckDb", "Exp Click Duck", Decibels, 0, 40, 0, 0, kNoEnum)
 
 enum class ParamId : std::size_t {
 #define RADIFF_PARAM_ENUM(Id, ...) Id,

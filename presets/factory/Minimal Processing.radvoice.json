@@ -85,7 +85,8 @@
       "stereoLink": true,
       "thresholdMode": "absolute",
       "relativeThresholdDb": -15.0,
-      "transientRejectMs": 0.0
+      "transientRejectMs": 0.0,
+      "clickDuckDb": 0.0
     },
     "deesser": {
       "enabled": false,

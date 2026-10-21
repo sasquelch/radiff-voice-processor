@@ -85,7 +85,8 @@
       "stereoLink": true,
       "thresholdMode": "speechRelative",
       "relativeThresholdDb": -11.0,
-      "transientRejectMs": 12.0
+      "transientRejectMs": 12.0,
+      "clickDuckDb": 24.0
     },
     "deesser": {
       "enabled": false,

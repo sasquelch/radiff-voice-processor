@@ -4,6 +4,43 @@ Only results that were actually executed are recorded here, with the environment
 Environment for all entries unless stated: Apple M1 Max, macOS 27.0.1, Xcode 27.1
 (Apple clang 21.0.0), CMake 4.4.3, Ninja 1.13.2, repository commit as of the entry date.
 
+## 2026-10-21 — Click ducking (owner: "I'm still hearing clicks of a mouse")
+
+Cause found by measuring the raw take (`bursts.py`, 2 ms and 10 ms one-pole detectors at the
+resolved −32.6 dBFS threshold): the mouse clicks are 0.0–1.2 ms long with sample peaks −14 … −37
+dBFS. On the 2 ms detector a −23 dBFS click reads about −43 dBFS, far under the threshold, so
+the gate's detectors never see them; the ones heard sit 15–150 ms after words, inside hold/release.
+Fix: per-sample click ducker in the expander (`clickDuckDb`), see docs/DSP_DESIGN.md.
+
+### Automated
+
+3 new test cases in `test_expander.cpp`: a 0.5 ms click 50 ms after a word is reduced by
+20.0 dB (±0.6) while the rest of the render is bit-identical; a plosive onset (8 ms burst, 5 ms
+gap, vowel), a 15 ms consonant release and a click during speech are untouched (max diff 0 /
+< 1e-6); a click in a closed pause stays at the cap; latency 384 samples with lookahead 0.
+Suites: mac-debug 34/34 (`test_core` 76 cases), mac-asan 34/34, mac-release 34/34 (see the
+end of this section for the run after preset regeneration).
+
+### Real voice (TOM0010679, Balanced preset = medium tier, Release CLI)
+
+Sample peak within ±3 ms of each click, change versus raw:
+
+| Click | context | raw peak | medium, duck off | medium, duck 20 |
+|---|---|---|---|---|
+| 27.87 s | 150 ms gap inside a sentence | −14.5 dBFS | −6.1 dB | **−18.5 dB** |
+| 36.40 s | pause (gate closed) | −36.5 | −19.8 | −19.8 (cap, unchanged) |
+| 36.86 s | 50 ms after a word | −27.8 | −7.8 | **−20.7 dB** |
+| 30.02 s | 1 ms transient 26 ms after a word | −21.7 | −0.7 | −15.1 |
+| 31.92 s | 77 ms after a word | −19.6 | −7.9 | −11.7 |
+
+Candidates 15–47 ms after a word (7.54 s, 13.64 s, 24.66 s, 24.85 s) are not ducked because
+the 10 ms level is still above the threshold there; they are masked by the word tail. Over the
+whole 39.7 s take the ducker cut 7 regions by more than 3 dB, all 2.0–4.6 ms long with a quiet
+10 ms before them; no speech frame changed by more than compressor-envelope ripple (0.3 dB
+max sample difference inside speech frames, caused by compressor 1 re-settling after a dip).
+Renders: `~/Desktop/RaDiff-Listening/D-medium-clickduck-<file>.wav` for all four files
+(compare with `B2-medium-*`, which is the same preset without ducking). **Not yet heard by the owner.**
+
 ## 2026-10-21 — Phase 4: standalone app (macOS)
 
 | What | Result |

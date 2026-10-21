@@ -361,3 +361,134 @@ TEST_CASE("transient rejection does not change steady-state behaviour or hold") 
     CHECK(steady(p, -20.0) == doctest::Approx(-20.0).epsilon(0.005));
     CHECK(steady(p, -40.0) == doctest::Approx(-50.0).epsilon(0.01));
 }
+
+// ---------------------------------------------------------------------------------------------
+// Click ducking
+// ---------------------------------------------------------------------------------------------
+namespace {
+/// Medium-tier style settings with an absolute threshold so the numbers are explicit.
+ParameterSet mediumLike(float clickDuckDb) {
+    ParameterSet p;
+    p.set(ParamId::ExpThresholdDbfs, -30.0f);
+    p.set(ParamId::ExpRatio, 3.0f);
+    p.set(ParamId::ExpKneeDb, 6.0f);
+    p.set(ParamId::ExpHysteresisDb, 3.0f);
+    p.set(ParamId::ExpAttackMs, 5.0f);
+    p.set(ParamId::ExpHoldMs, 40.0f);
+    p.set(ParamId::ExpReleaseMs, 60.0f);
+    p.set(ParamId::ExpRmsWindowMs, 10.0f);
+    p.set(ParamId::ExpMaxAttenuationDb, 20.0f);
+    p.set(ParamId::ExpLookaheadMs, 15.0f);
+    p.set(ParamId::ExpTransientRejectMs, 12.0f);
+    p.set(ParamId::ExpClickDuckDb, clickDuckDb);
+    return p;
+}
+
+/// Deterministic noise burst with the given sample peak (dBFS), written into b at `start`.
+void addNoiseBurst(core::AudioBuffer& b, std::size_t start, std::size_t length, double peakDb) {
+    std::uint32_t seed = 12345u;
+    const double amp = std::pow(10.0, peakDb / 20.0);
+    for (std::size_t i = 0; i < length && start + i < b.numFrames(); ++i) {
+        seed = seed * 1664525u + 1013904223u;
+        const double r = (static_cast<double>(seed >> 8) / 8388608.0) - 1.0; // [-1, 1)
+        b.channel(0)[start + i] += static_cast<float>(amp * r);
+    }
+}
+
+/// 0.5 s of "speech" (1 kHz, -20 dBFS RMS), then silence; something is placed `gapMs` after it.
+core::AudioBuffer speechThenGap() {
+    core::AudioBuffer b(1, 96000);
+    auto tone = test::sineRms(1, 24000, fs, 1000.0, -20.0);
+    for (std::size_t i = 0; i < 24000; ++i)
+        b.channel(0)[i] = tone.channel(0)[i];
+    return b;
+}
+
+core::AudioBuffer runExpander(const ParameterSet& p, core::AudioBuffer b, std::size_t* latency = nullptr) {
+    core::modules::Expander e;
+    e.prepare(fs, 1);
+    e.update(p);
+    if (latency)
+        *latency = e.latencySamples();
+    test::processInBlocks(b, 480, [&](core::AudioView v) { e.process(v); });
+    return b;
+}
+} // namespace
+
+TEST_CASE("click ducking: a 0.5 ms click 50 ms after a word is ducked by the full amount") {
+    const std::size_t at = 24000 + 2400; // 50 ms after the word: inside hold+release, gate still open
+    auto src = speechThenGap();
+    addNoiseBurst(src, at, 24, -25.0);
+    std::size_t D = 0;
+    auto off = runExpander(mediumLike(0.0f), src, &D);
+    auto on = runExpander(mediumLike(20.0f), src);
+    CHECK(D == 720);
+    const double offPeak = test::peakDb(off, 0, at + D - 48, at + D + 96);
+    const double onPeak = test::peakDb(on, 0, at + D - 48, at + D + 96);
+    CHECK(offPeak > -25.0 - 6.0);           // without ducking the click rides through the release
+    CHECK(onPeak < -25.0 - 19.5);           // ducked by (almost exactly) 20 dB
+    CHECK(onPeak == doctest::Approx(offPeak - 20.0).epsilon(0.03));
+    // Outside the few ducked milliseconds the two renders are identical.
+    CHECK(test::maxAbsDiff(off, on) > 0.0);
+    double diffBefore = 0.0;
+    for (std::size_t i = 0; i < at + D - 48; ++i)
+        diffBefore = std::max(diffBefore, std::fabs(static_cast<double>(off.channel(0)[i]) - static_cast<double>(on.channel(0)[i])));
+    CHECK(diffBefore == 0.0);
+    CHECK(test::allFinite(on));
+}
+
+TEST_CASE("click ducking leaves plosive onsets, consonant releases and clicks inside speech alone") {
+    // Word-initial plosive: 8 ms burst, 5 ms gap, then voice. The burst must not be ducked.
+    {
+        core::AudioBuffer src(1, 48000);
+        const std::size_t burstAt = 12000;
+        addNoiseBurst(src, burstAt, 384, -22.0);
+        auto vowel = test::sineRms(1, 24000, fs, 1000.0, -20.0);
+        for (std::size_t i = 0; i < 24000; ++i)
+            src.channel(0)[burstAt + 384 + 240 + i] = vowel.channel(0)[i];
+        std::size_t D = 0;
+        auto off = runExpander(mediumLike(0.0f), src, &D);
+        auto on = runExpander(mediumLike(20.0f), src);
+        CHECK(test::peakDb(on, 0, burstAt + D, burstAt + D + 384) ==
+              doctest::Approx(test::peakDb(off, 0, burstAt + D, burstAt + D + 384)).epsilon(0.005));
+        CHECK(test::maxAbsDiff(off, on) < 1e-6);
+    }
+    // Word-final consonant release: a 15 ms burst 50 ms after the word is longer than a click.
+    {
+        auto src = speechThenGap();
+        const std::size_t at = 24000 + 2400;
+        addNoiseBurst(src, at, 720, -28.0);
+        std::size_t D = 0;
+        auto off = runExpander(mediumLike(0.0f), src, &D);
+        auto on = runExpander(mediumLike(20.0f), src);
+        CHECK(test::maxAbsDiff(off, on) < 1e-6);
+    }
+    // A click during speech (gate open, level above threshold): nothing to do.
+    {
+        auto src = test::sineRms(1, 48000, fs, 1000.0, -20.0);
+        addNoiseBurst(src, 24000, 24, -10.0);
+        auto off = runExpander(mediumLike(0.0f), src);
+        auto on = runExpander(mediumLike(20.0f), src);
+        CHECK(test::maxAbsDiff(off, on) == 0.0);
+    }
+}
+
+TEST_CASE("click ducking: clicks in a closed pause stay at the cap, and the ducker sets a minimum delay") {
+    auto src = speechThenGap();
+    const std::size_t at = 24000 + 24000; // 500 ms after the word: gate closed
+    addNoiseBurst(src, at, 24, -25.0);
+    std::size_t D = 0;
+    auto on = runExpander(mediumLike(20.0f), src, &D);
+    CHECK(test::peakDb(on, 0, at + D - 48, at + D + 96) < -25.0 - 19.5);
+
+    auto p = mediumLike(20.0f);
+    p.set(ParamId::ExpLookaheadMs, 0.0f);
+    p.set(ParamId::ExpTransientRejectMs, 0.0f);
+    core::modules::Expander e;
+    e.prepare(fs, 1);
+    e.update(p);
+    CHECK(e.latencySamples() == 384); // 8 ms minimum while ducking is on
+    p.set(ParamId::ExpClickDuckDb, 0.0f);
+    e.update(p);
+    CHECK(e.latencySamples() == 0);
+}
