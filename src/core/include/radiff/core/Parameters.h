@@ -13,11 +13,14 @@ namespace radiff::core {
 // Modules of the canonical signal chain (section 5 of the master spec).
 // Order here IS the fixed v1 processing order.
 // ---------------------------------------------------------------------------
-enum class Module : std::size_t { Global = 0, Input, Eq, Expander, Compressor1, Compressor2, Output, Count };
+enum class Module : std::size_t {
+    Global = 0, Input, Eq, Expander, Deesser, Compressor1, Compressor2, Presence, Output, Count
+};
 constexpr std::size_t kNumModules = static_cast<std::size_t>(Module::Count);
-[[nodiscard]] std::string_view moduleKey(Module m) noexcept; ///< JSON key, e.g. "compressor1"
+[[nodiscard]] std::string_view moduleKey(Module m) noexcept;  ///< JSON key, e.g. "compressor1"
+[[nodiscard]] std::string_view moduleName(Module m) noexcept; ///< display name, e.g. "Compressor 1"
 
-enum class ParamUnit { None, Decibels, Hertz, Milliseconds, Ratio, Q, Fraction, Boolean, Enum, DbPerOctave };
+enum class ParamUnit { None, Decibels, Hertz, Milliseconds, Ratio, Q, Fraction, Boolean, Enum, DbPerOctave, Octaves };
 
 inline constexpr std::array<std::string_view, 5> kEqTypeNames{"bell", "lowShelf", "highShelf", "highPass", "lowPass"};
 inline constexpr std::array<std::string_view, 2> kDetectorNames{"rms", "peak"};
@@ -96,7 +99,26 @@ enum class ThresholdMode : int { Absolute = 0, SpeechRelative };
     /* --- appended after v0.1.0 (append-only: enum index is the stable ID) --- */                                      \
     X(ExpThresholdMode, Expander, -1, "thresholdMode", "Exp Threshold Mode", Enum, 0, 1, 0, 1, kThresholdModeNames)     \
     X(ExpRelativeThresholdDb, Expander, -1, "relativeThresholdDb", "Exp Relative Threshold", Decibels, -40, 0, -15, 0, kNoEnum) \
-    X(ExpTransientRejectMs, Expander, -1, "transientRejectMs", "Exp Transient Reject", Milliseconds, 0, 20, 0, 0, kNoEnum)
+    X(ExpTransientRejectMs, Expander, -1, "transientRejectMs", "Exp Transient Reject", Milliseconds, 0, 20, 0, 0, kNoEnum) \
+    /* --- Phase 6 (dbx-286-class coverage): de-esser, enhancer, compressor auto makeup --- */                           \
+    X(DeessEnabled, Deesser, -1, "enabled", "De-ess On", Boolean, 0, 1, 0, 1, kNoEnum)                                   \
+    X(DeessFrequencyHz, Deesser, -1, "frequencyHz", "De-ess Freq", Hertz, 800, 12000, 6000, 0, kNoEnum)                  \
+    X(DeessBandwidthOct, Deesser, -1, "bandwidthOctaves", "De-ess Width", Octaves, 0.25, 3, 1, 0, kNoEnum)               \
+    X(DeessThresholdDbfs, Deesser, -1, "thresholdDbfs", "De-ess Threshold", Decibels, -60, 0, -30, 0, kNoEnum)           \
+    X(DeessMaxReductionDb, Deesser, -1, "maxReductionDb", "De-ess Max Reduction", Decibels, 0, 12, 6, 0, kNoEnum)        \
+    X(DeessAttackMs, Deesser, -1, "attackMs", "De-ess Attack", Milliseconds, 0.1, 50, 1, 0, kNoEnum)                     \
+    X(DeessReleaseMs, Deesser, -1, "releaseMs", "De-ess Release", Milliseconds, 10, 500, 60, 0, kNoEnum)                 \
+    X(DeessListen, Deesser, -1, "listen", "De-ess Listen", Boolean, 0, 1, 0, 1, kNoEnum)                                 \
+    X(DeessStereoLink, Deesser, -1, "stereoLink", "De-ess Stereo Link", Boolean, 0, 1, 1, 1, kNoEnum)                    \
+    X(PresEnabled, Presence, -1, "enabled", "Enhancer On", Boolean, 0, 1, 0, 1, kNoEnum)                                 \
+    X(PresLfDetail, Presence, -1, "lfDetail", "LF Detail", None, 0, 10, 0, 0, kNoEnum)                                   \
+    X(PresLfFrequencyHz, Presence, -1, "lfFrequencyHz", "LF Detail Freq", Hertz, 40, 300, 100, 0, kNoEnum)               \
+    X(PresHfDetail, Presence, -1, "hfDetail", "HF Detail", None, 0, 10, 0, 0, kNoEnum)                                   \
+    X(PresHfFrequencyHz, Presence, -1, "hfFrequencyHz", "HF Detail Freq", Hertz, 1500, 12000, 3500, 0, kNoEnum)          \
+    X(PresHfDynamic, Presence, -1, "hfDynamic", "HF Detail Dynamic", Fraction, 0, 1, 0.5, 0, kNoEnum)                    \
+    X(PresMakeupGainDb, Presence, -1, "makeupGainDb", "Enhancer Makeup", Decibels, -12, 12, 0, 0, kNoEnum)               \
+    X(Comp1AutoMakeup, Compressor1, -1, "autoMakeup", "Comp 1 Auto Makeup", Boolean, 0, 1, 0, 1, kNoEnum)                \
+    X(Comp2AutoMakeup, Compressor2, -1, "autoMakeup", "Comp 2 Auto Makeup", Boolean, 0, 1, 0, 1, kNoEnum)
 
 enum class ParamId : std::size_t {
 #define RADIFF_PARAM_ENUM(Id, ...) Id,
@@ -142,6 +164,12 @@ struct ParamInfo {
 [[nodiscard]] std::optional<float> parseParamValue(ParamId id, std::string_view text) noexcept;
 /// Enum name for a value (empty if not an enum parameter).
 [[nodiscard]] std::string_view enumName(ParamId id, float value) noexcept;
+/// Unit suffix for displays ("dB", "Hz", "ms", ":1", "oct", ...; empty for none/bool/enum).
+[[nodiscard]] std::string_view unitSuffix(ParamUnit unit) noexcept;
+/// False for operator-only states that must never be written to a preset or restored as an
+/// on-air default (the de-esser's detection monitor). Serialisers write such parameters as
+/// their default value and loaders reset them.
+[[nodiscard]] bool isPersistent(ParamId id) noexcept;
 
 /// Plain value set for all parameters. Trivially copyable so hosts can hand a complete
 /// snapshot to the engine without locking.

@@ -8,8 +8,10 @@ namespace radiff::core {
 
 namespace {
 
-constexpr std::array<std::string_view, kNumModules> kModuleKeys{"global",      "input",       "eq",    "expander",
-                                                                "compressor1", "compressor2", "output"};
+constexpr std::array<std::string_view, kNumModules> kModuleKeys{
+    "global", "input", "eq", "expander", "deesser", "compressor1", "compressor2", "presence", "output"};
+constexpr std::array<std::string_view, kNumModules> kModuleNames{
+    "Global", "Input", "Equalizer", "Expander", "De-esser", "Compressor 1", "Compressor 2", "Enhancer", "Output"};
 
 constexpr std::array<ParamInfo, kNumParams> kTable{{
 #define RADIFF_PARAM_ROW(Id, Mod, Band, Key, Name, Unit, Min, Max, Def, Step, Enum)                                    \
@@ -47,6 +49,26 @@ bool iequals(std::string_view a, std::string_view b) noexcept {
 } // namespace
 
 std::string_view moduleKey(Module m) noexcept { return kModuleKeys[static_cast<std::size_t>(m)]; }
+std::string_view moduleName(Module m) noexcept { return kModuleNames[static_cast<std::size_t>(m)]; }
+
+std::string_view unitSuffix(ParamUnit unit) noexcept {
+    switch (unit) {
+    case ParamUnit::Decibels: return "dB";
+    case ParamUnit::Hertz: return "Hz";
+    case ParamUnit::Milliseconds: return "ms";
+    case ParamUnit::Ratio: return ":1";
+    case ParamUnit::DbPerOctave: return "dB/oct";
+    case ParamUnit::Octaves: return "oct";
+    case ParamUnit::None:
+    case ParamUnit::Q:
+    case ParamUnit::Fraction:
+    case ParamUnit::Boolean:
+    case ParamUnit::Enum: break;
+    }
+    return {};
+}
+
+bool isPersistent(ParamId id) noexcept { return id != ParamId::DeessListen; }
 
 std::optional<Module> moduleForKey(std::string_view key) noexcept {
     for (std::size_t i = 0; i < kNumModules; ++i)
@@ -84,21 +106,26 @@ std::optional<ParamId> paramIdForPath(std::string_view path) noexcept {
         return std::nullopt;
     std::string_view rest = path.substr(dot + 1);
     int band = -1;
-    if (rest.rfind("band", 0) == 0) {
-        const auto dot2 = rest.find('.');
-        if (dot2 == std::string_view::npos || dot2 < 5)
-            return std::nullopt;
+    // "eq.band3.gainDb": a band prefix is "band", digits, '.'; anything else ("bandwidthOctaves")
+    // is an ordinary key.
+    const auto dot2 = rest.find('.');
+    if (dot2 != std::string_view::npos && dot2 > 4 && rest.rfind("band", 0) == 0) {
         const std::string_view num = rest.substr(4, dot2 - 4);
         int n = 0;
+        bool digits = true;
         for (char c : num) {
-            if (c < '0' || c > '9')
-                return std::nullopt;
+            if (c < '0' || c > '9') {
+                digits = false;
+                break;
+            }
             n = n * 10 + (c - '0');
         }
-        if (n < 1 || n > kNumEqBands)
-            return std::nullopt;
-        band = n - 1;
-        rest = rest.substr(dot2 + 1);
+        if (digits) {
+            if (n < 1 || n > kNumEqBands)
+                return std::nullopt;
+            band = n - 1;
+            rest = rest.substr(dot2 + 1);
+        }
     }
     return paramIdFor(*mod, band, rest);
 }

@@ -82,8 +82,10 @@ FileJobReport processFile(const FileJob& job, const ProgressFn& progress) {
             measure.set(core::ParamId::ExpEnabled, 0.0f);
             measure.set(core::ParamId::ExpLookaheadMs, 0.0f);
             measure.set(core::ParamId::ExpTransientRejectMs, 0.0f);
+            measure.set(core::ParamId::DeessEnabled, 0.0f);
             measure.set(core::ParamId::Comp1Enabled, 0.0f);
             measure.set(core::ParamId::Comp2Enabled, 0.0f);
+            measure.set(core::ParamId::PresEnabled, 0.0f);
             measure.set(core::ParamId::OutputGainDb, 0.0f);
             core::AudioBuffer copy(audio);
             engine.prepare(cfg);

@@ -9,8 +9,10 @@
     "input",
     "eq",
     "expander",
+    "deesser",
     "compressor1",
     "compressor2",
+    "presence",
     "output"
   ],
   "bypass": false,
@@ -85,6 +87,17 @@
       "relativeThresholdDb": -12.0,
       "transientRejectMs": 12.0
     },
+    "deesser": {
+      "enabled": false,
+      "frequencyHz": 6000.0,
+      "bandwidthOctaves": 1.0,
+      "thresholdDbfs": -30.0,
+      "maxReductionDb": 6.0,
+      "attackMs": 1.0,
+      "releaseMs": 60.0,
+      "listen": false,
+      "stereoLink": true
+    },
     "compressor1": {
       "enabled": true,
       "thresholdDbfs": -24.0,
@@ -99,7 +112,8 @@
       "sidechainHighPassHz": 100.0,
       "autoRelease": false,
       "wet": 1.0,
-      "stereoLink": true
+      "stereoLink": true,
+      "autoMakeup": false
     },
     "compressor2": {
       "enabled": false,
@@ -115,7 +129,17 @@
       "sidechainHighPassHz": 100.0,
       "autoRelease": false,
       "wet": 1.0,
-      "stereoLink": true
+      "stereoLink": true,
+      "autoMakeup": false
+    },
+    "presence": {
+      "enabled": false,
+      "lfDetail": 0.0,
+      "lfFrequencyHz": 100.0,
+      "hfDetail": 0.0,
+      "hfFrequencyHz": 3500.0,
+      "hfDynamic": 0.5,
+      "makeupGainDb": 0.0
     }
   },
   "output": {

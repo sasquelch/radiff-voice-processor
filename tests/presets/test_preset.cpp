@@ -85,8 +85,33 @@ TEST_CASE("the spec's example structure loads, with unknown future modules warne
     // Missing bands/params keep defaults.
     CHECK(p.parameters.get(ParamId::EqBand5FrequencyHz) == 10000.0f);
     CHECK(p.parameters.get(ParamId::Comp1RmsWindowMs) == 10.0f);
-    // 5 unknown modules in signalOrder + 5 unknown module objects = 10 warnings.
-    CHECK(r.warnings.size() == 10);
+    // 3 unknown modules in signalOrder + 3 unknown module objects = 6 warnings
+    // (deesser and presence are implemented now).
+    CHECK(r.warnings.size() == 6);
+}
+
+TEST_CASE("files written before the de-esser/enhancer existed still load (shorter signalOrder)") {
+    presets::Preset p;
+    auto r = presets::fromJson(R"({"schemaVersion":1,"name":"old",
+        "signalOrder":["input","eq","expander","compressor1","compressor2","output"],
+        "modules":{"expander":{"thresholdDbfs":-40}}})", p);
+    REQUIRE_MESSAGE(r.ok(), r.error);
+    CHECK(r.warnings.empty());
+    CHECK(p.parameters.get(ParamId::ExpThresholdDbfs) == -40.0f);
+    CHECK_FALSE(p.parameters.getBool(ParamId::DeessEnabled));
+    CHECK_FALSE(p.parameters.getBool(ParamId::PresEnabled));
+}
+
+TEST_CASE("the de-esser monitor mode is never persisted nor restored") {
+    presets::Preset p;
+    p.parameters.set(ParamId::DeessListen, true);
+    const std::string text = presets::toJson(p);
+    CHECK(text.find("\"listen\": false") != std::string::npos);
+    presets::Preset q;
+    auto r = presets::fromJson(R"({"schemaVersion":1,"modules":{"deesser":{"listen":true,"enabled":true}}})", q);
+    REQUIRE_MESSAGE(r.ok(), r.error);
+    CHECK_FALSE(q.parameters.getBool(ParamId::DeessListen));
+    CHECK(q.parameters.getBool(ParamId::DeessEnabled));
 }
 
 TEST_CASE("unknown keys warn, values clamp, strings/bools/numbers interchange") {

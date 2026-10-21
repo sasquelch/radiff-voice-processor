@@ -5,6 +5,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <sstream>
@@ -18,10 +19,12 @@ using core::ParamInfo;
 
 namespace {
 
-const std::vector<Module> kSerializedModules{Module::Input, Module::Eq, Module::Expander, Module::Compressor1,
-                                             Module::Compressor2};
+const std::vector<Module> kSerializedModules{Module::Input,       Module::Eq,          Module::Expander, Module::Deesser,
+                                             Module::Compressor1, Module::Compressor2, Module::Presence};
 
 json encodeValue(const ParamInfo& info, float v) {
+    if (!core::isPersistent(info.id))
+        v = info.defaultValue; // operator-only state (monitor modes) never lands in a file
     if (info.isBoolean())
         return v >= 0.5f;
     if (info.isEnum())
@@ -34,6 +37,10 @@ json encodeValue(const ParamInfo& info, float v) {
 /// Returns false (with a warning) if the JSON value cannot be applied.
 bool decodeValue(const ParamInfo& info, const json& j, core::ParameterSet& out, const std::string& where,
                  std::vector<std::string>& warnings) {
+    if (!core::isPersistent(info.id)) {
+        out.set(info.id, info.defaultValue); // never restore a monitor mode from a file
+        return true;
+    }
     if (j.is_boolean()) {
         out.set(info.id, j.get<bool>() ? 1.0f : 0.0f);
         return true;
@@ -86,7 +93,8 @@ void readModuleObject(Module m, int band, const json& obj, core::ParameterSet& o
 } // namespace
 
 const std::vector<std::string>& canonicalSignalOrder() {
-    static const std::vector<std::string> order{"input", "eq", "expander", "compressor1", "compressor2", "output"};
+    static const std::vector<std::string> order{"input",       "eq",          "expander", "deesser",
+                                                "compressor1", "compressor2", "presence", "output"};
     return order;
 }
 
@@ -175,7 +183,13 @@ PresetResult fromJson(const std::string& text, Preset& preset) {
             else
                 result.warnings.push_back("signalOrder contains a module this build does not implement: " + name);
         }
-        if (known != canonicalSignalOrder()) {
+        // Modules the file does not list (written before they existed, or deliberately absent)
+        // are fine; the ones it does list must appear in the fixed processing order.
+        std::vector<std::string> expected;
+        for (const auto& k : canonicalSignalOrder())
+            if (std::find(known.begin(), known.end(), k) != known.end())
+                expected.push_back(k);
+        if (known != expected) {
             result.error = "Unsupported signalOrder: this build processes a fixed chain (" +
                            [] { std::string s; for (const auto& k : canonicalSignalOrder()) s += (s.empty() ? "" : ", ") + k; return s; }() + ")";
             return result;
