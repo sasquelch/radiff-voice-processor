@@ -1,0 +1,4 @@
+Roboto-Regular.ttf is the Roboto typeface by Christian Robertson / Google,
+licensed under the Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0).
+It is bundled unmodified as the UI font of the RaDiff Voice Processor standalone application.
+The file was taken from the iPlug2 example projects (third_party/iPlug2/Examples/*/resources/fonts).
