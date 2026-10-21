@@ -1,5 +1,7 @@
 #include <doctest.h>
 
+#include <ostream> // MSVC: operator<<(string_view) needs the full ostream before doctest stringifies values
+
 #include "TestSignals.h"
 #include "radiff/core/Analysis.h"
 

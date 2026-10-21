@@ -1,6 +1,8 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
 
+#include <ostream> // MSVC: operator<<(string_view) needs the full ostream before doctest stringifies values
+
 #include "radiff/app/TransactionalFile.h"
 #include "radiff/platform/Paths.h"
 

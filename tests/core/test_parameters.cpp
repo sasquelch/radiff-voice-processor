@@ -1,5 +1,7 @@
 #include <doctest.h>
 
+#include <ostream> // MSVC: operator<<(string_view) needs the full ostream before doctest stringifies values
+
 #include "radiff/core/Parameters.h"
 
 #include <cmath>
