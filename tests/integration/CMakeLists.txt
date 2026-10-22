@@ -64,6 +64,12 @@ add_test(NAME cli_silent_input_warns COMMAND ${CLI} --input "${T}/silent.wav" --
 set_tests_properties(cli_silent_input_warns PROPERTIES PASS_REGULAR_EXPRESSION "WARNING: input is digital silence" DEPENDS cli_setup_silent)
 add_test(NAME cli_silent_input_rejected COMMAND ${TOOL} expect-exit 7 -- ${CLI} --input "${T}/silent.wav" --output "${T}/out/silent2.wav" --overwrite --reject-silent-input)
 set_tests_properties(cli_silent_input_rejected PROPERTIES DEPENDS cli_setup_silent)
+add_test(NAME cli_log_run1 COMMAND ${CLI} --input "${T}/sine_mono_48k.wav" --output "${T}/out/logged1.wav" ${UNITY_SETS} --overwrite --log "${T}/out/radiff.log")
+add_test(NAME cli_log_run2 COMMAND ${TOOL} expect-exit 3 -- ${CLI} --input "${T}/missing-for-log.wav" --output "${T}/out/logged2.wav" --log "${T}/out/radiff.log")
+add_test(NAME cli_log_contents COMMAND ${CMAKE_COMMAND} -E cat "${T}/out/radiff.log")
+set_tests_properties(cli_log_contents PROPERTIES DEPENDS "cli_log_run1;cli_log_run2"
+    PASS_REGULAR_EXPRESSION "RaDiffVoiceCLI [0-9.]+ exit 0 .*levels: in peak -6\\.0.*RaDiffVoiceCLI [0-9.]+ exit 3 .*missing-for-log")
+set_tests_properties(cli_log_run2 PROPERTIES DEPENDS cli_log_run1)
 add_test(NAME cli_wait_for_missing_input COMMAND ${TOOL} expect-exit 3 -- ${CLI} --input "${T}/never-there.wav" --output "${T}/out/x.wav" --wait-for-input 1)
 
 add_test(NAME cli_process_mono_preset
@@ -111,7 +117,7 @@ set_tests_properties(
     cli_exit_code_bad_set cli_exit_code_input cli_exit_code_preset cli_exit_code_same_file
     cli_process_mono_preset cli_process_stereo_override cli_process_unicode_path
     cli_process_block_64 cli_process_block_4096 cli_process_factory_balanced cli_setup_existing_output
-    cli_analyze_only_json cli_analyze_only_text
+    cli_analyze_only_json cli_analyze_only_text cli_log_run1
     PROPERTIES FIXTURES_REQUIRED cli_inputs)
 set_tests_properties(cli_verify_mono_preset      PROPERTIES DEPENDS cli_process_mono_preset)
 set_tests_properties(cli_verify_mp3_input        PROPERTIES DEPENDS cli_process_mp3_input)

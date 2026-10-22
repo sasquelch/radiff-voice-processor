@@ -69,12 +69,13 @@ if "%USE_STEREOTOOL%"=="0" set "RADIFF_OUTPUT=%FINAL_OUTPUT%"
 REM === STEP 1: RaDiff voice processing ===
 REM  --wait-for-input 30     : wait until PlayoutONE has finished writing the take (size stable)
 REM  --reject-silent-input   : an all-zero take is an error (exit 7), never silently "processed"
+REM  --log LOGDIR\radiff.log : one timestamped record per take in a single station-wide log
 REM  Up to 3 attempts 3 s apart cover a take that was still being filled in when we started.
 set "ATTEMPT=0"
 :radiff_retry
 set /a ATTEMPT+=1
 echo Running RaDiff voice processing (attempt %ATTEMPT%)... >> "%LOGFILE%"
-"%RADIFF%" --input "%INPUT%" --output "%RADIFF_OUTPUT%" --preset "%RADIFF_PRESET%" --overwrite --verbose --wait-for-input 30 --reject-silent-input >> "%LOGFILE%" 2>&1
+"%RADIFF%" --input "%INPUT%" --output "%RADIFF_OUTPUT%" --preset "%RADIFF_PRESET%" --overwrite --verbose --wait-for-input 30 --reject-silent-input --log "%LOGDIR%\radiff.log" >> "%LOGFILE%" 2>&1
 set "RC=%ERRORLEVEL%"
 
 if "%RC%"=="7" if %ATTEMPT% LSS 3 (

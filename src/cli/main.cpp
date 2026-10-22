@@ -22,6 +22,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <ctime>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -52,6 +55,8 @@ void printUsage(std::FILE* to) {
         "  --wait-for-input <s>  Wait up to <s> seconds for the input to exist and stop growing before\n"
         "                        reading it (for automation systems that call this while still writing)\n"
         "  --reject-silent-input Exit 7 instead of writing a silent output when every input sample is 0\n"
+        "  --log <file>          Append one timestamped record per run (paths, preset, levels, result) to\n"
+        "                        this file; never contains secrets\n"
         "  --analyze-only        Measure the input (speech level, noise floor, peak, resolved expander\n"
         "                        threshold) and write nothing; --output is optional\n"
         "  --json-result         Print a machine-readable JSON result object on stdout\n"
@@ -100,10 +105,74 @@ struct Options {
     std::optional<std::string> presetPath;
     std::vector<std::pair<std::string, std::string>> overrides;
     bool quiet = false, verbose = false, jsonResult = false;
+    std::optional<std::filesystem::path> logPath;
 };
+
+/// UTC timestamp "YYYY-MM-DDTHH:MM:SSZ" without locale or thread-safety concerns
+/// (civil-from-days, H. Hinnant; avoids localtime/gmtime which MSVC flags as unsafe).
+std::string utcTimestamp() {
+    const auto t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    long long z = static_cast<long long>(t) / 86400;
+    const long long secs = static_cast<long long>(t) - z * 86400;
+    z += 719468;
+    const long long era = (z >= 0 ? z : z - 146096) / 146097;
+    const long long doe = z - era * 146097;
+    const long long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    const long long y = yoe + era * 400;
+    const long long doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    const long long mp = (5 * doy + 2) / 153;
+    const long long d = doy - (153 * mp + 2) / 5 + 1;
+    const long long m = mp < 10 ? mp + 3 : mp - 9;
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%04lld-%02lld-%02lldT%02lld:%02lld:%02lldZ", y + (m <= 2 ? 1 : 0), m, d,
+                  secs / 3600, (secs / 60) % 60, secs % 60);
+    return buf;
+}
+
+double dbfsOf(float peak) { return peak > 0.0f ? 20.0 * std::log10(static_cast<double>(peak)) : -144.0; }
+
+/// One timestamped record per run, appended to --log. Never contains secrets: the CLI only ever
+/// sees paths, parameters and measurements.
+void appendLog(const Options& o, ExitCode code, const std::string& msg, const radiff::app::FileJobReport* report,
+               double seconds) {
+    if (!o.logPath)
+        return;
+    std::ofstream log(*o.logPath, std::ios::app);
+    if (!log) {
+        std::fprintf(stderr, "warning: cannot write log file %s\n", radiff::platform::pathToUtf8(*o.logPath).c_str());
+        return;
+    }
+    log << "[" << utcTimestamp() << "] RaDiffVoiceCLI " << radiff::core::kVersionString << " exit " << radiff::app::toInt(code)
+        << " (" << radiff::app::describe(code) << ")" << (o.job.analyzeOnly ? " analyze-only" : "") << "\n";
+    log << "  input:  " << radiff::platform::pathToUtf8(o.job.input);
+    if (report && report->inputInfo.numFrames > 0)
+        log << "  (" << report->analysis.durationSeconds << " s, " << report->inputInfo.numChannels << " ch, "
+            << report->inputInfo.sampleRate << " Hz; " << report->inputInfo.layout << ")";
+    log << "\n";
+    if (!o.job.analyzeOnly)
+        log << "  output: " << radiff::platform::pathToUtf8(o.job.output) << "\n";
+    log << "  preset: " << (o.presetPath ? *o.presetPath : std::string("(built-in defaults)"));
+    for (const auto& [k, v] : o.overrides)
+        log << " --set " << k << "=" << v;
+    log << "\n";
+    if (report && report->inputInfo.numFrames > 0) {
+        char line[256];
+        std::snprintf(line, sizeof(line),
+                      "  levels: in peak %.1f dBFS, speech %.1f, floor %.1f, expander threshold %.1f (%s), out peak %.1f dBFS%s",
+                      dbfsOf(report->peakIn), report->analysis.speechLevelDbfs, report->analysis.noiseFloorDbfs,
+                      report->expanderThresholdDbfs, report->expanderThresholdIsRelative ? "speech-relative" : "absolute",
+                      dbfsOf(report->peakOut), report->inputSilent ? "  INPUT IS DIGITAL SILENCE" : "");
+        log << line << "\n";
+        if (report->waitedSeconds > 0.0)
+            log << "  waited " << report->waitedSeconds << " s for the input\n";
+        log << "  elapsed " << seconds << " s, latency compensated " << report->latencyFrames << " frames\n";
+    }
+    log << "  result: " << msg << "\n";
+}
 
 int emit(const Options& o, ExitCode code, const std::string& msg, const radiff::app::FileJobReport* report,
          double seconds) {
+    appendLog(o, code, msg, report, seconds);
     if (o.jsonResult) {
         nlohmann::ordered_json j;
         j["ok"] = code == ExitCode::Success;
@@ -200,6 +269,7 @@ int run(const std::vector<std::string>& args) {
         if (a == "--overwrite") { o.job.overwrite = true; continue; }
         if (a == "--analyze-only") { o.job.analyzeOnly = true; continue; }
         if (a == "--reject-silent-input") { o.job.rejectSilentInput = true; continue; }
+        if (a == "--log") { auto v = need(i, a); if (!v) return 2; o.logPath = radiff::platform::pathFromUtf8(*v); ++i; continue; }
         if (a == "--wait-for-input") {
             auto v = need(i, a); if (!v) return 2;
             const auto secs = radiff::platform::parseNumber(*v);

@@ -35,5 +35,7 @@ input layout) goes to the per-job log; the license key is never echoed. Exit cod
 plain-text reasons in the log; the batch file exits 1 on any failure and never leaves a partial
 output file (RaDiff publishes atomically; a failed Stereo Tool step leaves no final file).
 
-Not yet done from the spec's Phase 7 list: `--log` option in the CLI (the batch file redirects
-instead), a PlayoutONE-side settings file, and a test run on the real automation machine.
+Besides the per-job log, every run appends one timestamped record to `LOGDIR\radiff.log`
+(`--log`): paths, preset and overrides, input layout, levels, resolved threshold, result. Not yet
+done from the spec's Phase 7 list: a PlayoutONE-side settings file, and a verified good run on the
+real automation machine (the first run processed a take that decoded as silence).
