@@ -23,6 +23,9 @@ set "RADIFF_PRESET=C:\PlayoutONE\Modules\RaDiff\Presets\Station Voice.radvoice.j
 set "STEREOTOOL=C:\PlayoutONE\Modules\stereo_tool_cmd.exe"
 set "WORKDIR=D:\WebVT Processing\Temp"
 set "LOGDIR=D:\WebVT Processing\Logs"
+REM Set to 1 to keep a copy of EVERY input and final output in WORKDIR (for tuning on real takes;
+REM they are never deleted by this script, so switch it back to 0 afterwards).
+set "KEEP_INPUTS=0"
 
 if not exist "%WORKDIR%" mkdir "%WORKDIR%"
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"
@@ -124,6 +127,12 @@ if not exist "%FINAL_OUTPUT%" (
 )
 
 echo Success >> "%LOGFILE%"
+
+if "%KEEP_INPUTS%"=="1" (
+    copy /Y "%INPUT%" "%WORKDIR%\kept_%JOBID%_input%~x1" >nul 2>&1
+    copy /Y "%FINAL_OUTPUT%" "%WORKDIR%\kept_%JOBID%_final%~x2" >nul 2>&1
+    echo Kept copies: %WORKDIR%\kept_%JOBID%_input%~x1 and kept_%JOBID%_final%~x2 >> "%LOGFILE%"
+)
 
 REM Optional cleanup of the intermediate file
 del "%RADIFF_OUTPUT%" >nul 2>&1

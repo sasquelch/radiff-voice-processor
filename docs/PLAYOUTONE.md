@@ -30,6 +30,10 @@ attempts 3 s apart, and on final failure a copy of the input is kept as
 `WORKDIR\failed_<job>_input.wav` for diagnosis. `--verbose` also prints the WAV layout (format
 tag, bits, chunk list, data offset/size, file size, "SHORT by N" if truncated).
 
+`KEEP_INPUTS=1` at the top of the batch file keeps a copy of every input and final output in
+WORKDIR (`kept_<job>_input.wav` / `kept_<job>_final.wav`) for tuning on real takes; set it back
+to 0 afterwards, nothing deletes them.
+
 Logging: RaDiff's `--verbose` output (latency, levels, timing, resolved expander threshold,
 input layout) goes to the per-job log; the license key is never echoed. Exit codes from RaDiff are mapped to
 plain-text reasons in the log; the batch file exits 1 on any failure and never leaves a partial
