@@ -57,7 +57,9 @@ Identical arguments, exit codes and processing on both platforms:
 RaDiffVoiceCLI.exe --input "D:\Audio\input.wav" --output "D:\Audio\output.wav" --preset "D:\Audio\Voice.radvoice.json"
 ```
 
-Exit codes: `0` verified success, `2` usage, `3` input, `4` preset, `5` processing, `6` output I/O,
+Input may be WAV (16/24/32-bit PCM or float, mono/stereo, any rate) **or MP3** (decoded with
+minimp3; the container is detected from the content). Output is always WAV; for MP3 input it
+defaults to 24-bit PCM. Exit codes: `0` verified success, `2` usage, `3` input, `4` preset, `5` processing, `6` output I/O,
 `7` validation, `8` cancelled, `70` internal. `--overwrite` is required to replace an existing
 output; the input is never overwritten. `--set expander.thresholdDbfs=-44` overrides any
 parameter after the preset (`--list-params` prints them all); `--json-result` prints a

@@ -39,7 +39,7 @@ fi
 
 echo "Submodules:"
 cd "$(dirname "$0")/.."
-git submodule update --init third_party/nlohmann_json third_party/doctest third_party/iPlug2
+git submodule update --init third_party/nlohmann_json third_party/doctest third_party/iPlug2 third_party/minimp3
 git submodule update --init third_party/vst3sdk
 git -C third_party/vst3sdk submodule update --init base pluginterfaces public.sdk cmake
 git submodule status | sed 's/^/  /'

@@ -47,6 +47,17 @@ add_test(NAME cli_analyze_only_text
     COMMAND ${CLI} --input "${T}/sine_stereo_44k.wav" --analyze-only)
 set_tests_properties(cli_analyze_only_text PROPERTIES PASS_REGULAR_EXPRESSION "speech level -15\\.0.*expander threshold: -48\\.0 dBFS \\(absolute\\)")
 
+# MP3 input decodes and processes like WAV; output is WAV (24-bit by default); .mp3 output is refused.
+set(MP3_TONE ${CMAKE_SOURCE_DIR}/tests/data/tone-440-1s-48k-mono.mp3)
+add_test(NAME cli_process_mp3_input
+    COMMAND ${CLI} --input "${MP3_TONE}" --output "${T}/out/from_mp3.wav" ${UNITY_SETS} --overwrite --verbose)
+add_test(NAME cli_verify_mp3_input
+    COMMAND ${TOOL} verify-wav --file "${T}/out/from_mp3.wav" --rate 48000 --channels 1 --format pcm24 --peak-db -17.43 --tol-db 0.1 --from-seconds 0.25) # ffmpeg decodes the same file to a -17.432914 dBFS peak
+add_test(NAME cli_exit_code_mp3_output COMMAND ${TOOL} expect-exit 2 -- ${CLI} --input "${MP3_TONE}" --output "${T}/out/nope.mp3" --overwrite)
+add_test(NAME cli_analyze_mp3
+    COMMAND ${CLI} --input "${MP3_TONE}" --analyze-only)
+set_tests_properties(cli_analyze_mp3 PROPERTIES PASS_REGULAR_EXPRESSION "speech level -20\\.[0-9]")
+
 add_test(NAME cli_process_mono_preset
     COMMAND ${CLI} --input "${T}/sine_mono_48k.wav" --output "${T}/out/mono_minus6.wav" --preset "${T}/unity-minus6.radvoice.json" --overwrite)
 add_test(NAME cli_verify_mono_preset
@@ -95,6 +106,7 @@ set_tests_properties(
     cli_analyze_only_json cli_analyze_only_text
     PROPERTIES FIXTURES_REQUIRED cli_inputs)
 set_tests_properties(cli_verify_mono_preset      PROPERTIES DEPENDS cli_process_mono_preset)
+set_tests_properties(cli_verify_mp3_input        PROPERTIES DEPENDS cli_process_mp3_input)
 set_tests_properties(cli_verify_stereo_override  PROPERTIES DEPENDS cli_process_stereo_override)
 set_tests_properties(cli_verify_unicode_path     PROPERTIES DEPENDS cli_process_unicode_path)
 set_tests_properties(cli_compare_block_sizes     PROPERTIES DEPENDS "cli_process_block_64;cli_process_block_4096")

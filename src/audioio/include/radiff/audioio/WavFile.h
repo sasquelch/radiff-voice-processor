@@ -11,11 +11,17 @@ namespace radiff::audioio {
 /// Sample encodings supported for reading and writing.
 enum class SampleFormat { Pcm16, Pcm24, Pcm32, Float32 };
 
+/// Where the audio came from. The engine only ever writes WAV; MP3 is accepted as input.
+enum class Container { Wav, Mp3 };
+
 struct WavInfo {
     double sampleRate = 0.0;
     std::uint16_t numChannels = 0;
     std::uint64_t numFrames = 0;
+    /// Sample encoding of a WAV file. For MP3 input this is the recommended output encoding
+    /// (Pcm24), so "keep the input format" produces a sensible WAV.
     SampleFormat format = SampleFormat::Pcm16;
+    Container container = Container::Wav;
     [[nodiscard]] std::uint16_t bitsPerSample() const noexcept;
 };
 

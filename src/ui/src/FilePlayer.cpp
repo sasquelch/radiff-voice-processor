@@ -1,5 +1,5 @@
 #include "radiff/ui/FilePlayer.h"
-#include "radiff/audioio/WavFile.h"
+#include "radiff/audioio/AudioFile.h"
 #include "radiff/platform/Paths.h"
 
 #include <algorithm>
@@ -23,7 +23,7 @@ FilePlayer::FilePlayer() {
 std::string FilePlayer::load(const std::filesystem::path& file) {
     audioio::WavInfo info;
     core::AudioBuffer audio;
-    const auto err = audioio::readWav(file, info, audio);
+    const auto err = audioio::readAudio(file, info, audio);
     if (!err.ok())
         return err.message;
     if (audio.numChannels() == 0 || audio.numFrames() == 0)

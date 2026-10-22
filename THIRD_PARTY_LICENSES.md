@@ -9,6 +9,7 @@ no per-seat/runtime royalties and no copyleft obligations on our code.
 | iPlug2 | commit `39ea73aa` (master, Oct 2026) | zlib-style (`LICENSE.txt`) | standalone app shell, plug-in wrappers, UI toolkit | OK for closed source. iPlug2 bundles third-party code (WDL, NanoVG, etc.) under permissive licences; each is listed in its `LICENSE.txt` and will be re-audited when the UI layer is wired in (Phase 5). |
 | nlohmann/json | 3.12.0 | MIT | preset files | OK |
 | doctest | 2.5.3 | MIT | tests only, not shipped | OK |
+| minimp3 (`minimp3.h`, `minimp3_ex.h`) | commit `ea99364` | CC0 1.0 Universal (public domain dedication, `LICENSE`) | MP3 decoding of input files in the CLI and the app (no encoding) | OK; no attribution required, kept anyway. MP3 patents expired worldwide by 2017. |
 | Apple frameworks (Foundation, AudioUnit, CoreAudio…) | system | Apple SDK licence | macOS builds only | OK; not required on Windows |
 | Windows SDK / MSVC runtime | VS 2022 | Microsoft | Windows builds only; static CRT (`/MT`) so no redistributable is needed | OK |
 | Fonts, icons | — | — | none yet | Any added asset must be OFL/CC0/MIT and listed here |

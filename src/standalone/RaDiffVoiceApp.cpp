@@ -599,7 +599,6 @@ void RaDiffVoiceApp::showPresetMenu(IControl* anchor) {
     presets_.rescan();
     auto entries = std::make_shared<std::vector<radiff::ui::PresetEntry>>(presets_.all());
     auto* menu = new IPopupMenu("Presets");
-    int idx = 0;
     bool separatorDone = false;
     for (const auto& e : *entries) {
         if (!e.factory && !separatorDone) {
@@ -609,7 +608,6 @@ void RaDiffVoiceApp::showPresetMenu(IControl* anchor) {
         auto* item = menu->AddItem(e.name.c_str());
         if (e.file == presets_.currentFile())
             item->SetChecked(true);
-        ++idx;
     }
     if (presets_.user().empty()) {
         menu->AddSeparator();
@@ -678,7 +676,7 @@ void RaDiffVoiceApp::chooseInputFile() {
     WDL_String fileName, path;
     if (!fileIn_.empty())
         path.Set(platform::pathToUtf8(fileIn_.parent_path()).c_str());
-    g->PromptForFile(fileName, path, EFileAction::Open, "wav", [this](const WDL_String& f, const WDL_String&) {
+    g->PromptForFile(fileName, path, EFileAction::Open, "wav mp3", [this](const WDL_String& f, const WDL_String&) {
         if (!f.GetLength())
             return;
         fileIn_ = platform::pathFromUtf8(f.Get());
@@ -824,7 +822,7 @@ void RaDiffVoiceApp::previewLoadDialog() {
     WDL_String fileName, path;
     if (!fileIn_.empty())
         path.Set(platform::pathToUtf8(fileIn_.parent_path()).c_str());
-    g->PromptForFile(fileName, path, EFileAction::Open, "wav", [this](const WDL_String& f, const WDL_String&) {
+    g->PromptForFile(fileName, path, EFileAction::Open, "wav mp3", [this](const WDL_String& f, const WDL_String&) {
         if (f.GetLength())
             previewLoad(platform::pathFromUtf8(f.Get()));
     });

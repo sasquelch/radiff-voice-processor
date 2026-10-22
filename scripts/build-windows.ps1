@@ -27,7 +27,7 @@ if (-not $env:VSCMD_VER) {
     }
 }
 
-git submodule update --init third_party/nlohmann_json third_party/doctest third_party/iPlug2 third_party/vst3sdk
+git submodule update --init third_party/nlohmann_json third_party/doctest third_party/iPlug2 third_party/vst3sdk third_party/minimp3
 git -C third_party/vst3sdk submodule update --init base pluginterfaces public.sdk cmake
 
 if ($VisualStudio) {

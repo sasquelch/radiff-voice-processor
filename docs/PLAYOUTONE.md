@@ -5,7 +5,8 @@ WebVT post-processing script with `RaDiffVoiceCLI.exe`. It is a drop-in: Playout
 with the same arguments as before (`%1` input WAV, `%2` final output, `%4` Stereo Tool `.sts`
 preset, `%6` Stereo Tool license key).
 
-Chain: input → **RaDiff** (expander with click ducking, de-esser, EQ, compressors, enhancer
+Input may be WAV or MP3 (WebVT passes either); RaDiff decodes MP3 itself and always hands
+Stereo Tool a WAV. Chain: input → **RaDiff** (expander with click ducking, de-esser, EQ, compressors, enhancer
 as set in the preset) → **Stereo Tool** (`stereo_tool_cmd.exe`, station sound) → final file.
 RaDiff runs first on purpose: the expander and de-esser want the natural voice, and Stereo
 Tool's AGC would otherwise raise breaths and room tone before the gate sees them. If no `.sts`

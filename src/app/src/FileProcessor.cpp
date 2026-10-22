@@ -1,4 +1,5 @@
 #include "radiff/app/FileProcessor.h"
+#include "radiff/audioio/AudioFile.h"
 #include "radiff/app/TransactionalFile.h"
 #include "radiff/core/Engine.h"
 #include "radiff/platform/Paths.h"
@@ -47,6 +48,9 @@ FileJobReport processFile(const FileJob& job, const ProgressFn& progress) {
         if (!job.analyzeOnly) {
             if (std::filesystem::equivalent(job.input, job.output, ec))
                 return fail(ExitCode::UsageError, "Input and output must be different files");
+            if (audioio::looksLikeMp3(job.output) && !std::filesystem::exists(job.output, ec))
+                return fail(ExitCode::UsageError,
+                            "Output is always WAV; give the output a .wav name (MP3 is accepted as input only)");
             if (!job.overwrite && std::filesystem::exists(job.output, ec))
                 return fail(ExitCode::OutputError, "Output file already exists: " + platform::pathToUtf8(job.output));
         }
@@ -55,7 +59,7 @@ FileJobReport processFile(const FileJob& job, const ProgressFn& progress) {
 
         FileJobReport report;
         core::AudioBuffer audio;
-        if (auto e = audioio::readWav(job.input, report.inputInfo, audio); !e.ok())
+        if (auto e = audioio::readAudio(job.input, report.inputInfo, audio); !e.ok())
             return fail(ExitCode::InputError, e.message);
         if (report.inputInfo.numChannels > 2)
             return fail(ExitCode::InputError, "Only mono and stereo input is supported (file has " +

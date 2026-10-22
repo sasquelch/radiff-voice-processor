@@ -4,6 +4,22 @@ Only results that were actually executed are recorded here, with the environment
 Environment for all entries unless stated: Apple M1 Max, macOS 27.0.1, Xcode 27.1
 (Apple clang 21.0.0), CMake 4.4.3, Ninja 1.13.2, repository commit as of the entry date.
 
+## 2026-10-21 — MP3 input (WebVT passes MP3 or WAV)
+
+Decoder: minimp3 (CC0), compiled once inside `radiff::audioio`; `readAudio()` sniffs the
+container (RIFF header, ID3 tag or MPEG sync) and falls back to the extension. Output is always
+WAV; an `.mp3` output name is refused with exit code 2.
+
+| Check | Result |
+|---|---|
+| Fixture `tone-440-1s-48k-mono.mp3` (LAME 128 kb/s from a −20.00 dBFS sine) | 48000 frames exactly (encoder delay/padding removed via the LAME tag); RMS and 440 Hz tone level −20.445 dBFS, **identical to ffmpeg's decoder (−20.444963)** within 0.05 dB |
+| Fixture `tone-1k-05s-44k-stereo.mp3` (192 kb/s, identical channels) | 44.1 kHz, 2 ch, channels equal within 1e-3, −12.265 dBFS (ffmpeg −12.264651) |
+| Container sniffing | MP3 renamed `.wav` loads as MP3; WAV renamed `.mp3` loads as WAV; text file → "Unsupported input" |
+| CLI integration | MP3 → 24-bit WAV through the unity chain, peak −17.43 dBFS (ffmpeg −17.432914) ±0.1; `--analyze-only` on MP3; `.mp3` output refused (exit 2) |
+| Real file `~/Downloads/TOM0010679.mp3` (192 kb/s stereo) via `--analyze-only` | 39.7 s, peak +0.3, speech −20.6, floor −96.4 dBFS: **the same numbers as the WAV that ffmpeg produced from it** |
+
+Suites: mac-debug 34/34 (new `test_mp3` cases inside `test_audioio`, 4 new CLI tests).
+
 ## 2026-10-21 — First Windows build (GitHub Actions, after the repository went public)
 
 Three CI rounds, all on `windows-2022` with MSVC 14.44, CMake 3.31.6, Ninja 1.12.1, preset

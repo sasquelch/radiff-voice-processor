@@ -28,7 +28,7 @@ radiff_add_test(test_core
 target_link_libraries(test_core PRIVATE radiff::core)
 target_include_directories(test_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/core)
 
-radiff_add_test(test_audioio  audioio/test_wav.cpp)
+radiff_add_test(test_audioio  audioio/test_wav.cpp audioio/test_mp3.cpp)
 target_link_libraries(test_audioio PRIVATE radiff::audioio)
 
 radiff_add_test(test_presets  presets/test_preset.cpp)
