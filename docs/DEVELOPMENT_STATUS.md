@@ -13,7 +13,7 @@ Spec phases: see MASTER_DEVELOPMENT_SPEC.md §13.
 | 4 Standalone GUI | **First working version (macOS, 2026-10-21):** iPlug2 APP target `RaDiffVoice-app`, every registry parameter has a control (generated from the table), EQ curve, meters (in/out, EXP/DS/C1/C2 reduction), preset menu with factory + user presets, New/Load/Save/Save As/Delete, dirty state, file panel (analyze/process one WAV on a worker thread, same `app::processFile` as the CLI, verified bit-identical to a CLI render), live input with online speech tracking, **file preview playback through the live chain** (Load/Play/Pause/Stop/Loop/seek, resampled to the device rate, meters live). **Open:** matched-loudness A/B, batch, waveform, drag-drop, transfer curves, Windows build (resources authored only). See docs/STANDALONE.md. |
 | 5 VST3 / AUv2 | Not started (VST3 SDK 3.8.1 pinned; `src/plugins/*` placeholders). |
 | 6 Advanced processing | **Partly done (2026-10-21):** frequency-selective de-esser and presence/enhancer (LF Detail, HF Detail with program-dependent back-off) implemented with tests; compressor auto makeup; online speech-level tracker for realtime hosts. All OFF in factory presets until heard. **Open:** multiband expander, saturation, limiter (no placeholder parameters; presets referencing them load with warnings). |
-| 7 PlayoutONE integration | Not started. |
+| 7 PlayoutONE integration | **Batch file authored** (`scripts/playoutone/WebVT-RaDiff.bat`, docs/PLAYOUTONE.md): RaDiff → Stereo Tool with the station's existing argument convention, log per job, exit-code mapping, key never logged. **Not yet run on the automation machine.** CLI `--log` still open. |
 | 8 Release | Not started. |
 
 ## Verification matrix

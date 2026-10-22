@@ -1,0 +1,29 @@
+# PlayoutONE / WebVT integration (Phase 7)
+
+`scripts/playoutone/WebVT-RaDiff.bat` replaces the REAPER + RX render step of the station's
+WebVT post-processing script with `RaDiffVoiceCLI.exe`. It is a drop-in: PlayoutONE calls it
+with the same arguments as before (`%1` input WAV, `%2` final output, `%4` Stereo Tool `.sts`
+preset, `%6` Stereo Tool license key).
+
+Chain: input → **RaDiff** (expander with click ducking, de-esser, EQ, compressors, enhancer
+as set in the preset) → **Stereo Tool** (`stereo_tool_cmd.exe`, station sound) → final file.
+RaDiff runs first on purpose: the expander and de-esser want the natural voice, and Stereo
+Tool's AGC would otherwise raise breaths and room tone before the gate sees them. If no `.sts`
+preset is passed or `stereo_tool_cmd.exe` is missing, RaDiff writes the final file directly.
+
+Install on the automation machine (no sound card is ever opened):
+
+1. Unzip the Windows release; copy `RaDiffVoiceCLI.exe` to `C:\PlayoutONE\Modules\RaDiff\`.
+2. Save the preset you tuned in the app (Save As…) and copy the `.radvoice.json` file to
+   `C:\PlayoutONE\Modules\RaDiff\Presets\` (or a factory preset from `Presets\factory`).
+3. Edit the three paths at the top of the batch file, keep your existing WORKDIR/LOGDIR.
+4. Run it by hand once: `WebVT-RaDiff.bat "D:\in.wav" "D:\out.wav" "" "" "" ""` (no Stereo
+   Tool) and check the log in LOGDIR; then point PlayoutONE at it.
+
+Logging: RaDiff's `--verbose` output (latency, levels, timing, resolved expander threshold)
+goes to the per-job log; the license key is never echoed. Exit codes from RaDiff are mapped to
+plain-text reasons in the log; the batch file exits 1 on any failure and never leaves a partial
+output file (RaDiff publishes atomically; a failed Stereo Tool step leaves no final file).
+
+Not yet done from the spec's Phase 7 list: `--log` option in the CLI (the batch file redirects
+instead), a PlayoutONE-side settings file, and a test run on the real automation machine.

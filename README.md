@@ -71,6 +71,7 @@ partial or missing deliverable.
 ## Documentation
 
 - [docs/STANDALONE.md](docs/STANDALONE.md) – the standalone app: build, window layout, presets, live vs file mode
+- [docs/PLAYOUTONE.md](docs/PLAYOUTONE.md) – PlayoutONE / WebVT batch integration on the automation machine (no sound card)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) – library layering and the platform-abstraction rules
 - [docs/BUILDING.md](docs/BUILDING.md) – toolchains, presets, options, deployment targets
 - [docs/CI.md](docs/CI.md) – GitHub Actions jobs, free-tier limits, building without hosted CI
