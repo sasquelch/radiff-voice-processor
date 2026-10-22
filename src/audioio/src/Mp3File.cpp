@@ -95,6 +95,9 @@ IoError readMp3(const std::filesystem::path& file, WavInfo& info, core::AudioBuf
     info.numFrames = frames;
     info.format = SampleFormat::Pcm24;
     info.container = Container::Mp3;
+    info.layout = "mp3(layer=" + std::to_string(fi.layer) + " ch=" + std::to_string(fi.channels) + " rate=" +
+                  std::to_string(fi.hz) + " avg_kbps=" + std::to_string(fi.avg_bitrate_kbps) + ") file=" +
+                  std::to_string(bytes.size());
     return IoError::success();
 }
 

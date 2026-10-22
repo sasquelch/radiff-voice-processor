@@ -5,7 +5,9 @@
 #include "radiff/platform/Paths.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <thread>
 #include <exception>
 
 namespace radiff::app {
@@ -43,6 +45,39 @@ FileJobReport processFile(const FileJob& job, const ProgressFn& progress) {
             return fail(ExitCode::UsageError, "No input file specified");
         if (job.output.empty() && !job.analyzeOnly)
             return fail(ExitCode::UsageError, "No output file specified");
+        double waitedSeconds = 0.0;
+        if (job.waitForInputSeconds > 0.0) {
+            // Wait for the file to appear and to stop growing: automation systems sometimes call
+            // the processor before they have finished writing the take.
+            using clock = std::chrono::steady_clock;
+            const auto start = clock::now();
+            std::uintmax_t lastSize = 0;
+            bool haveLast = false;
+            int stablePolls = 0;
+            for (;;) {
+                std::error_code pe;
+                const bool exists = std::filesystem::exists(job.input, pe) && !pe;
+                const std::uintmax_t size = exists ? std::filesystem::file_size(job.input, pe) : 0;
+                if (exists && !pe && size > 0 && haveLast && size == lastSize) {
+                    if (++stablePolls >= 2)
+                        break;
+                } else {
+                    stablePolls = 0;
+                }
+                lastSize = size;
+                haveLast = exists && !pe;
+                waitedSeconds = std::chrono::duration<double>(clock::now() - start).count();
+                if (waitedSeconds >= job.waitForInputSeconds)
+                    return fail(ExitCode::InputError,
+                                exists ? "Input file is still being written after waiting " +
+                                             std::to_string(static_cast<int>(job.waitForInputSeconds)) + " s: " +
+                                             platform::pathToUtf8(job.input)
+                                       : "Input file did not appear within " +
+                                             std::to_string(static_cast<int>(job.waitForInputSeconds)) + " s: " +
+                                             platform::pathToUtf8(job.input));
+                std::this_thread::sleep_for(std::chrono::milliseconds(400));
+            }
+        }
         if (!std::filesystem::exists(job.input, ec))
             return fail(ExitCode::InputError, "Input file does not exist: " + platform::pathToUtf8(job.input));
         if (!job.analyzeOnly) {
@@ -65,10 +100,19 @@ FileJobReport processFile(const FileJob& job, const ProgressFn& progress) {
             return fail(ExitCode::InputError, "Only mono and stereo input is supported (file has " +
                                                   std::to_string(report.inputInfo.numChannels) + " channels)");
 
+        report.waitedSeconds = waitedSeconds;
         float inputPeak = 0.0f;
         for (std::size_t c = 0; c < audio.numChannels(); ++c)
             for (float v : audio.channel(c))
                 inputPeak = std::max(inputPeak, std::fabs(v));
+        report.inputSilent = inputPeak == 0.0f && audio.numFrames() > 0;
+        if (report.inputSilent && job.rejectSilentInput) {
+            report.exitCode = ExitCode::ValidationError;
+            report.message = "Input is digital silence (every sample is zero), refusing to process it "
+                             "(--reject-silent-input). Layout: " + report.inputInfo.layout;
+            report.peakIn = 0.0f;
+            return report;
+        }
 
         // A fresh, fully independent engine per job: concurrent jobs never share state.
         core::Engine engine;

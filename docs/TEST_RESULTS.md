@@ -4,6 +4,26 @@ Only results that were actually executed are recorded here, with the environment
 Environment for all entries unless stated: Apple M1 Max, macOS 27.0.1, Xcode 27.1
 (Apple clang 21.0.0), CMake 4.4.3, Ninja 1.13.2, repository commit as of the entry date.
 
+## 2026-10-21 — First production run on the PlayoutONE server (owner's log)
+
+The owner ran `WebVT-RaDiff.bat` on the automation machine. The per-job log showed RaDiff
+succeeding but with `in -144.0 dBFS, out -144.0 dBFS`, `peak -144.0 dBFS … active 0.0 s`:
+the 40.7 s stereo 16-bit take decoded as all zeros, a silent WAV went to Stereo Tool, and the
+owner still heard clicks (from the original, evidently). The take was gone before it could be
+inspected (Audiobin files are temporary), so the cause is **not yet known**: either the file was
+not finished when the script fired, or its WAV layout is one the reader mishandles.
+
+Changes made so the next occurrence is diagnosable and less likely:
+
+| Change | Verified by |
+|---|---|
+| `--wait-for-input <s>`: wait until the input exists and stops growing (two polls 400 ms apart) | `test_app`: a file written 600 ms later is processed (waited > 0.5 s); a missing file times out with exit 3; CLI `cli_wait_for_missing_input` |
+| `--reject-silent-input`: all-zero input → exit 7 with the layout in the message; without it a `WARNING:` line is printed | `test_app` silent/loud cases; CLI `cli_silent_input_warns` (regex on WARNING), `cli_silent_input_rejected` (exit 7) |
+| `WavInfo::layout` ("fmt(tag=1 ch=2 rate=44100 bits=16 align=4) LIST(26) data(off=… bytes=…) file=… [SHORT by N]") printed with `--verbose` and in JSON | `test_app` checks `fmt(tag=1` and `data(` appear |
+| Batch: both flags, 3 attempts 3 s apart on exit 7, failing input copied to `WORKDIR\failed_<job>_input.wav` | authored (Windows batch; not executed here) |
+
+Suites: mac-debug 42/42.
+
 ## 2026-10-21 — MP3 input (WebVT passes MP3 or WAV)
 
 Decoder: minimp3 (CC0), compiled once inside `radiff::audioio`; `readAudio()` sniffs the

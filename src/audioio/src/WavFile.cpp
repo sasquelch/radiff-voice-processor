@@ -49,12 +49,20 @@ IoError parseHeader(std::ifstream& in, const std::filesystem::path& file, Parsed
 
     bool haveFmt = false, haveData = false;
     std::uint16_t formatTag = 0, bits = 0;
+    std::string layout;
     while (!haveData) {
         unsigned char ch[8];
         if (!in.read(reinterpret_cast<char*>(ch), 8))
             break;
         const std::uint32_t size = rd32(ch + 4);
         const std::streamoff chunkStart = in.tellg();
+        if (std::memcmp(ch, "fmt ", 4) != 0 && std::memcmp(ch, "data", 4) != 0) {
+            std::string id(reinterpret_cast<const char*>(ch), 4);
+            for (auto& c : id)
+                if (static_cast<unsigned char>(c) < 32 || static_cast<unsigned char>(c) > 126)
+                    c = '?';
+            layout += id + "(" + std::to_string(size) + ") ";
+        }
         if (std::memcmp(ch, "fmt ", 4) == 0) {
             if (size < 16)
                 return IoError::failure("Malformed fmt chunk: " + name);
@@ -72,6 +80,9 @@ IoError parseHeader(std::ifstream& in, const std::filesystem::path& file, Parsed
                 // Sub-format GUID: first two bytes hold the actual format tag.
                 formatTag = rd16(fmt.data() + 24);
             }
+            layout += "fmt(tag=" + std::to_string(formatTag) + " ch=" + std::to_string(out.info.numChannels) +
+                      " rate=" + std::to_string(static_cast<long long>(out.info.sampleRate)) +
+                      " bits=" + std::to_string(bits) + " align=" + std::to_string(out.blockAlign) + ") ";
             haveFmt = true;
         } else if (std::memcmp(ch, "data", 4) == 0) {
             out.dataOffset = static_cast<std::uint64_t>(chunkStart);
@@ -118,9 +129,14 @@ IoError parseHeader(std::ifstream& in, const std::filesystem::path& file, Parsed
     if (out.dataOffset > fileSize)
         return IoError::failure("Truncated WAV file: " + name);
     const std::uint64_t available = fileSize - out.dataOffset;
+    layout += "data(off=" + std::to_string(out.dataOffset) + " bytes=" + std::to_string(out.dataBytes) + ") file=" +
+              std::to_string(fileSize);
+    if (out.dataBytes != 0 && out.dataBytes != 0xFFFFFFFFu && out.dataBytes > available)
+        layout += " SHORT by " + std::to_string(out.dataBytes - available);
     if (out.dataBytes == 0 || out.dataBytes == 0xFFFFFFFFu || out.dataBytes > available)
         out.dataBytes = available;
     out.info.numFrames = out.dataBytes / out.blockAlign;
+    out.info.layout = layout;
     return IoError::success();
 }
 

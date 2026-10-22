@@ -67,18 +67,32 @@ if not exist "%STEREOTOOL%" set "USE_STEREOTOOL=0"
 if "%USE_STEREOTOOL%"=="0" set "RADIFF_OUTPUT=%FINAL_OUTPUT%"
 
 REM === STEP 1: RaDiff voice processing ===
-echo Running RaDiff voice processing... >> "%LOGFILE%"
-"%RADIFF%" --input "%INPUT%" --output "%RADIFF_OUTPUT%" --preset "%RADIFF_PRESET%" --overwrite --verbose >> "%LOGFILE%" 2>&1
+REM  --wait-for-input 30     : wait until PlayoutONE has finished writing the take (size stable)
+REM  --reject-silent-input   : an all-zero take is an error (exit 7), never silently "processed"
+REM  Up to 3 attempts 3 s apart cover a take that was still being filled in when we started.
+set "ATTEMPT=0"
+:radiff_retry
+set /a ATTEMPT+=1
+echo Running RaDiff voice processing (attempt %ATTEMPT%)... >> "%LOGFILE%"
+"%RADIFF%" --input "%INPUT%" --output "%RADIFF_OUTPUT%" --preset "%RADIFF_PRESET%" --overwrite --verbose --wait-for-input 30 --reject-silent-input >> "%LOGFILE%" 2>&1
 set "RC=%ERRORLEVEL%"
+
+if "%RC%"=="7" if %ATTEMPT% LSS 3 (
+    echo Input read as digital silence; waiting 3 s and retrying... >> "%LOGFILE%"
+    timeout /t 3 /nobreak >nul
+    goto radiff_retry
+)
 
 if not "%RC%"=="0" (
     if "%RC%"=="2" echo ERROR: RaDiff usage error ^(bad arguments^) >> "%LOGFILE%"
-    if "%RC%"=="3" echo ERROR: RaDiff could not read the input WAV >> "%LOGFILE%"
+    if "%RC%"=="3" echo ERROR: RaDiff could not read the input ^(missing, still being written, or unsupported^) >> "%LOGFILE%"
     if "%RC%"=="4" echo ERROR: RaDiff preset invalid or unreadable >> "%LOGFILE%"
     if "%RC%"=="5" echo ERROR: RaDiff processing failed >> "%LOGFILE%"
     if "%RC%"=="6" echo ERROR: RaDiff could not write the output >> "%LOGFILE%"
-    if "%RC%"=="7" echo ERROR: RaDiff output failed validation >> "%LOGFILE%"
+    if "%RC%"=="7" echo ERROR: RaDiff refused the input ^(digital silence^) or the output failed validation >> "%LOGFILE%"
     echo ERROR: RaDiff exited with code %RC% >> "%LOGFILE%"
+    REM Keep a copy of the offending take so it can be examined later (Audiobin files are temporary).
+    copy /Y "%INPUT%" "%WORKDIR%\failed_%JOBID%_input%~x1" >nul 2>&1 && echo Input preserved as %WORKDIR%\failed_%JOBID%_input%~x1 >> "%LOGFILE%"
     exit /b 1
 )
 

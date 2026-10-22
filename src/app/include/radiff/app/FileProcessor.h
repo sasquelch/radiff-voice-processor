@@ -30,6 +30,14 @@ struct FileJob {
     /// Measure only: run the analysis pass, fill FileJobReport::analysis and the resolved
     /// expander threshold, write nothing. `output` may be empty.
     bool analyzeOnly = false;
+    /// > 0: before reading, wait up to this many seconds for the input to exist AND to stop
+    /// growing (size unchanged over two polls 400 ms apart). For automation systems that call
+    /// the processor while they are still writing the file. 0 = read immediately.
+    double waitForInputSeconds = 0.0;
+    /// Treat an input whose samples are all exactly zero as a failure (ExitCode::ValidationError)
+    /// instead of producing a silent output. Off by default: silent inputs are legitimate in general,
+    /// but a voice-track pipeline wants to know.
+    bool rejectSilentInput = false;
 };
 
 struct FileJobReport {
@@ -45,6 +53,10 @@ struct FileJobReport {
     /// Expander threshold actually used (dBFS) after resolving the threshold mode.
     double expanderThresholdDbfs = 0.0;
     bool expanderThresholdIsRelative = false;
+    /// True when every input sample was exactly zero (digital silence).
+    bool inputSilent = false;
+    /// Seconds spent in the waitForInputSeconds loop (0 when not waiting).
+    double waitedSeconds = 0.0;
 };
 
 using ProgressFn = std::function<void(double fraction)>;

@@ -63,7 +63,9 @@ defaults to 24-bit PCM. Exit codes: `0` verified success, `2` usage, `3` input, 
 `7` validation, `8` cancelled, `70` internal. `--overwrite` is required to replace an existing
 output; the input is never overwritten. `--set expander.thresholdDbfs=-44` overrides any
 parameter after the preset (`--list-params` prints them all); `--json-result` prints a
-machine-readable summary; `--analyze-only` measures a file (speech level, noise floor, peak,
+machine-readable summary; `--wait-for-input <s>` waits for a file that is still being written;
+`--reject-silent-input` fails (exit 7) on an all-zero input instead of writing silence (a plain
+run prints a WARNING); `--analyze-only` measures a file (speech level, noise floor, peak,
 resolved expander threshold) without writing anything. Factory presets place the expander
 threshold relative to the speech level the analysis pass measures in each file.
 Output files are written to a hidden temporary file beside the destination, flushed to disk,

@@ -58,6 +58,14 @@ add_test(NAME cli_analyze_mp3
     COMMAND ${CLI} --input "${MP3_TONE}" --analyze-only)
 set_tests_properties(cli_analyze_mp3 PROPERTIES PASS_REGULAR_EXPRESSION "speech level -20\\.[0-9]")
 
+# Digital-silence handling for automation pipelines.
+add_test(NAME cli_setup_silent COMMAND ${TOOL} gen-wav --out "${T}/silent.wav" --rate 44100 --channels 2 --seconds 0.5 --format pcm16 --freq 100 --amp 0)
+add_test(NAME cli_silent_input_warns COMMAND ${CLI} --input "${T}/silent.wav" --output "${T}/out/silent.wav" --overwrite)
+set_tests_properties(cli_silent_input_warns PROPERTIES PASS_REGULAR_EXPRESSION "WARNING: input is digital silence" DEPENDS cli_setup_silent)
+add_test(NAME cli_silent_input_rejected COMMAND ${TOOL} expect-exit 7 -- ${CLI} --input "${T}/silent.wav" --output "${T}/out/silent2.wav" --overwrite --reject-silent-input)
+set_tests_properties(cli_silent_input_rejected PROPERTIES DEPENDS cli_setup_silent)
+add_test(NAME cli_wait_for_missing_input COMMAND ${TOOL} expect-exit 3 -- ${CLI} --input "${T}/never-there.wav" --output "${T}/out/x.wav" --wait-for-input 1)
+
 add_test(NAME cli_process_mono_preset
     COMMAND ${CLI} --input "${T}/sine_mono_48k.wav" --output "${T}/out/mono_minus6.wav" --preset "${T}/unity-minus6.radvoice.json" --overwrite)
 add_test(NAME cli_verify_mono_preset

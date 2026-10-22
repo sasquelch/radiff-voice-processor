@@ -22,6 +22,10 @@ struct WavInfo {
     /// (Pcm24), so "keep the input format" produces a sensible WAV.
     SampleFormat format = SampleFormat::Pcm16;
     Container container = Container::Wav;
+    /// Human-readable description of the file layout for logs and remote diagnosis, e.g.
+    /// "fmt(tag=1 ch=2 rate=44100 bits=16 align=4) LIST(26) data(off=78 bytes=7181756) file=7181834".
+    /// A data chunk that claims more bytes than the file holds is marked "SHORT by N".
+    std::string layout;
     [[nodiscard]] std::uint16_t bitsPerSample() const noexcept;
 };
 

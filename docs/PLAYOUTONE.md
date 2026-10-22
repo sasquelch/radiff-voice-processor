@@ -21,8 +21,17 @@ Install on the automation machine (no sound card is ever opened):
 4. Run it by hand once: `WebVT-RaDiff.bat "D:\in.wav" "D:\out.wav" "" "" "" ""` (no Stereo
    Tool) and check the log in LOGDIR; then point PlayoutONE at it.
 
-Logging: RaDiff's `--verbose` output (latency, levels, timing, resolved expander threshold)
-goes to the per-job log; the license key is never echoed. Exit codes from RaDiff are mapped to
+First production log (2026-10-21) showed RaDiff reading a take as **digital silence** (`in -144.0
+dBFS`, `active 0.0 s`) while Stereo Tool then happily processed 7 MB of zeros. The take had been
+deleted by PlayoutONE before it could be examined, so the batch file now defends itself:
+`--wait-for-input 30` (RaDiff waits until the file exists and has stopped growing),
+`--reject-silent-input` (an all-zero take exits 7 instead of producing silent audio), three
+attempts 3 s apart, and on final failure a copy of the input is kept as
+`WORKDIR\failed_<job>_input.wav` for diagnosis. `--verbose` also prints the WAV layout (format
+tag, bits, chunk list, data offset/size, file size, "SHORT by N" if truncated).
+
+Logging: RaDiff's `--verbose` output (latency, levels, timing, resolved expander threshold,
+input layout) goes to the per-job log; the license key is never echoed. Exit codes from RaDiff are mapped to
 plain-text reasons in the log; the batch file exits 1 on any failure and never leaves a partial
 output file (RaDiff publishes atomically; a failed Stereo Tool step leaves no final file).
 

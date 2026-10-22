@@ -5,8 +5,10 @@
 #include "radiff/app/FileProcessor.h"
 #include "radiff/platform/Paths.h"
 
+#include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <thread>
 
 using namespace radiff;
 using core::ParamId;
@@ -173,4 +175,63 @@ TEST_CASE("analyze-only measures the input, resolves the relative threshold and 
     // A normal job also carries the analysis and still refuses a missing output.
     job.analyzeOnly = false;
     CHECK(app::processFile(job).exitCode == app::ExitCode::UsageError);
+}
+
+TEST_CASE("silent input: reported, and refused with --reject-silent-input") {
+    const auto in = makeInput("silent.wav", 1, 48000.0, 4800, 0.0f);
+    app::FileJob job;
+    job.input = in;
+    job.output = tmpDir() / "silent-out.wav";
+    job.parameters = allOff();
+    job.overwrite = true;
+    auto r = app::processFile(job);
+    CHECK(r.exitCode == app::ExitCode::Success); // silence is legitimate by default
+    CHECK(r.inputSilent);
+    CHECK(r.inputInfo.layout.find("data(") != std::string::npos);
+    CHECK(r.inputInfo.layout.find("fmt(tag=1") != std::string::npos);
+
+    job.rejectSilentInput = true;
+    job.output = tmpDir() / "silent-out2.wav";
+    auto rr = app::processFile(job);
+    CHECK(rr.exitCode == app::ExitCode::ValidationError);
+    CHECK(rr.inputSilent);
+    CHECK(rr.message.find("digital silence") != std::string::npos);
+    CHECK_FALSE(std::filesystem::exists(job.output));
+
+    const auto loud = makeInput("notsilent.wav", 1, 48000.0, 4800, 0.5f);
+    job.input = loud;
+    job.output = tmpDir() / "silent-out3.wav";
+    auto ok = app::processFile(job);
+    CHECK(ok.exitCode == app::ExitCode::Success);
+    CHECK_FALSE(ok.inputSilent);
+}
+
+TEST_CASE("wait-for-input: a file that appears and finishes later is processed; a missing one times out") {
+    const auto late = tmpDir() / "late.wav";
+    std::filesystem::remove(late);
+    std::thread writer([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(600));
+        makeInput("late.wav", 1, 48000.0, 9600, 0.4f);
+    });
+    app::FileJob job;
+    job.input = late;
+    job.output = tmpDir() / "late-out.wav";
+    job.parameters = allOff();
+    job.overwrite = true;
+    job.waitForInputSeconds = 10.0;
+    const auto t0 = std::chrono::steady_clock::now();
+    auto r = app::processFile(job);
+    writer.join();
+    const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    CHECK(r.exitCode == app::ExitCode::Success);
+    CHECK(r.waitedSeconds > 0.5);
+    CHECK(r.framesProcessed == 9600);
+    CHECK(elapsed < 9.0);
+
+    job.input = tmpDir() / "never.wav";
+    job.output = tmpDir() / "never-out.wav";
+    job.waitForInputSeconds = 1.0;
+    auto miss = app::processFile(job);
+    CHECK(miss.exitCode == app::ExitCode::InputError);
+    CHECK(miss.message.find("did not appear") != std::string::npos);
 }

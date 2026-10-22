@@ -49,6 +49,9 @@ void printUsage(std::FILE* to) {
         "  --bit-depth <n>       Same as --format: 16, 24, 32 (integer) or float\n"
         "  --overwrite           Allow replacing an existing output file (never the input)\n"
         "  --block <frames>      Processing block size, 1..65536 (default 512; does not affect output)\n"
+        "  --wait-for-input <s>  Wait up to <s> seconds for the input to exist and stop growing before\n"
+        "                        reading it (for automation systems that call this while still writing)\n"
+        "  --reject-silent-input Exit 7 instead of writing a silent output when every input sample is 0\n"
         "  --analyze-only        Measure the input (speech level, noise floor, peak, resolved expander\n"
         "                        threshold) and write nothing; --output is optional\n"
         "  --json-result         Print a machine-readable JSON result object on stdout\n"
@@ -116,6 +119,9 @@ int emit(const Options& o, ExitCode code, const std::string& msg, const radiff::
             j["channels"] = report->inputInfo.numChannels;
             j["latencyFramesCompensated"] = report->latencyFrames;
             j["inputPeakDbfs"] = report->peakIn > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakIn)) : -144.0;
+            j["inputSilent"] = report->inputSilent;
+            j["inputLayout"] = report->inputInfo.layout;
+            j["waitedSeconds"] = report->waitedSeconds;
             if (!o.job.analyzeOnly)
                 j["outputPeakDbfs"] = report->peakOut > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakOut)) : -144.0;
             if (report->inputInfo.numFrames > 0) {
@@ -134,6 +140,10 @@ int emit(const Options& o, ExitCode code, const std::string& msg, const radiff::
         j["seconds"] = seconds;
         std::printf("%s\n", j.dump().c_str());
     }
+    if (report && report->inputSilent && code == ExitCode::Success)
+        std::fprintf(stderr, "WARNING: input is digital silence (every sample is zero); the output is silent too. "
+                             "Use --reject-silent-input to fail instead. Layout: %s\n",
+                     report->inputInfo.layout.c_str());
     if (code != ExitCode::Success) {
         std::fprintf(stderr, "error: %s\n", msg.c_str());
     } else if (!o.quiet && !o.jsonResult) {
@@ -144,6 +154,11 @@ int emit(const Options& o, ExitCode code, const std::string& msg, const radiff::
                         radiff::platform::pathToUtf8(o.job.output).c_str(), msg.c_str(),
                         report && report->peakIn > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakIn)) : -144.0,
                         report && report->peakOut > 0.0f ? 20.0 * std::log10(static_cast<double>(report->peakOut)) : -144.0);
+        if (o.verbose && report) {
+            std::printf("input layout: %s\n", report->inputInfo.layout.c_str());
+            if (report->waitedSeconds > 0.0)
+                std::printf("waited %.1f s for the input to be complete\n", report->waitedSeconds);
+        }
         if ((o.verbose || o.job.analyzeOnly) && report) {
             const auto& a = report->analysis;
             std::printf("analysis: %.1f s, peak %.1f dBFS, speech level %.1f dBFS, noise floor %.1f dBFS, active %.1f s\n",
@@ -184,6 +199,14 @@ int run(const std::vector<std::string>& args) {
         if (a == "--json-result") { o.jsonResult = true; continue; }
         if (a == "--overwrite") { o.job.overwrite = true; continue; }
         if (a == "--analyze-only") { o.job.analyzeOnly = true; continue; }
+        if (a == "--reject-silent-input") { o.job.rejectSilentInput = true; continue; }
+        if (a == "--wait-for-input") {
+            auto v = need(i, a); if (!v) return 2;
+            const auto secs = radiff::platform::parseNumber(*v);
+            if (!secs || *secs < 0.0 || *secs > 3600.0)
+                return usageError("--wait-for-input must be a number of seconds between 0 and 3600");
+            o.job.waitForInputSeconds = *secs; ++i; continue;
+        }
         if (a == "--input") { auto v = need(i, a); if (!v) return 2; o.job.input = radiff::platform::pathFromUtf8(*v); ++i; continue; }
         if (a == "--output") { auto v = need(i, a); if (!v) return 2; o.job.output = radiff::platform::pathFromUtf8(*v); ++i; continue; }
         if (a == "--preset") { auto v = need(i, a); if (!v) return 2; o.presetPath = *v; ++i; continue; }
